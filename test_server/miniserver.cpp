@@ -46,7 +46,7 @@ int main()
 
         //(socket del cliente, donde se guardan los datos, maximo de datos que recibe, ni puta idea de que es esto xd)
         recv(client_fd, buffer,size_t(buffer),0);//recibe la info del socket del cliente 
-        std::string body = "Hola desde el server";
+        std::string body = "8================D";
         std::string response =
             "HTTP/1.1 200 OK\r\n"
             "Content-Type: text/plain\r\n"
