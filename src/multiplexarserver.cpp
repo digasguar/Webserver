@@ -92,10 +92,11 @@ int main()
                 }
                 Client& client = clients.at(current_fd);
 
-                client.recv_buffer.append(buffer);
+                client.recv_buffer.append(buffer, bytes);
 
                 std::cout << client.recv_buffer;
 
+                
                 std::string body = "8================D";
                 std::string response =
                     "HTTP/1.1 200 OK\r\n"
