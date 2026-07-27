@@ -5,6 +5,8 @@
 #include <iostream>
 #include <netinet/in.h>
 #include <sys/epoll.h>
+#include <map>
+#include "../includes/Client.hpp"
 
 int main()
 {
@@ -50,6 +52,7 @@ int main()
         exit(EXIT_FAILURE);
     }
     epoll_event events[42];
+    std::map<int, Client> clients;
     while (1)
     {
        int n = epoll_wait(epoll_fd, events, 42, -1);
@@ -68,6 +71,7 @@ int main()
                 int fd_client = accept(fd,(struct sockaddr*)&client, &len);
                 if (fd_client < 0)
                     continue;
+                clients.insert(std::make_pair(fd_client, Client(fd_client)));
                 epoll_event client_event{};
                 client_event.data.fd = fd_client;
                 client_event.events = EPOLLIN;
@@ -86,6 +90,12 @@ int main()
                     epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL);
                     continue;
                 }
+                Client& client = clients.at(current_fd);
+
+                client.recv_buffer.append(buffer);
+
+                std::cout << client.recv_buffer;
+
                 std::string body = "8================D";
                 std::string response =
                     "HTTP/1.1 200 OK\r\n"
