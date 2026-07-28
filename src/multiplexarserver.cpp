@@ -89,13 +89,13 @@ int main()
                 client.recv_buffer.append(buffer, bytes);
                 //hardcodeado
                 client.setRequestType("GET");
-                client.setRequestPath("/index.html");
+                client.setRequestPath("/indexa.html");
                 client.setRequestVersion("http1.1");
 
                 Procesrequest(&client);
 
                 std::string response = Procesrequest(&client);
-                send(current_fd, response.c_str(), response.size(), 0);
+                send(current_fd, response.data(), response.size(), 0);
                 close(current_fd);
                 epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL);
             }
