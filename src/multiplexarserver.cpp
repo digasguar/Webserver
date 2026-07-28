@@ -1,15 +1,6 @@
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <unistd.h>
-#include <cstdlib>
-#include <iostream>
-#include <netinet/in.h>
-#include <sys/epoll.h>
-#include <map>
-#include "../includes/Client.hpp"
 
+#include "../includes/Librari.hpp"
 
-void ParserRequest(std::string buffer, Client * client);
 
 int main()
 {
@@ -96,19 +87,14 @@ int main()
                 Client& client = clients.at(current_fd);
 
                 client.recv_buffer.append(buffer, bytes);
+                //hardcodeado
+                client.setRequestType("GET");
+                client.setRequestPath("/index.html");
+                client.setRequestVersion("http1.1");
 
-                ParserRequest(buffer, &client);
-                std::cout << client.recv_buffer;
+                Procesrequest(&client);
 
-                
-                std::string body = "8================D";
-                std::string response =
-                    "HTTP/1.1 200 OK\r\n"
-                    "Content-Type: text/plain\r\n"
-                    "Content-Length: " + std::to_string(body.size()) + "\r\n"
-                    "Connection: close\r\n"
-                    "\r\n" +
-                    body;
+                std::string response = Procesrequest(&client);
                 send(current_fd, response.c_str(), response.size(), 0);
                 close(current_fd);
                 epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL);

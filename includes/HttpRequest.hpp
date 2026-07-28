@@ -1,6 +1,7 @@
 #ifndef HTTPREQUEST_HPP
 # define HTTPREQUEST_HPP
 #include <string>
+#include <iostream>
 
 struct HttpRequesr
 {
