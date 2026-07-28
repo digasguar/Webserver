@@ -8,6 +8,9 @@
 #include <map>
 #include "../includes/Client.hpp"
 
+
+void ParserRequest(std::string buffer, Client * client);
+
 int main()
 {
     //(ipv4, TCP, protocolo con 0 el sistema lo eligue por ti)
@@ -94,6 +97,7 @@ int main()
 
                 client.recv_buffer.append(buffer, bytes);
 
+                ParserRequest(buffer, &client);
                 std::cout << client.recv_buffer;
 
                 
