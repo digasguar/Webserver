@@ -4,6 +4,7 @@ std::string createResponse(const std::string body, const std::string type, const
 
 std::string Procesrequest(Client * client)
 {
+
     if (client->getRequest().type == "GET")
     {
         std::string path = client->getRequest().path;
@@ -30,7 +31,21 @@ std::string Procesrequest(Client * client)
 
         std::string body = buffer.str();
         return (createResponse(body, "text/html", "200 OK"));
+    }
+    else if (client->getRequest().type == "POST")
+    {
+        std::string path = client->getRequest().path;
 
+        std::string filePath = "/sgoinfre/students/dgasco-g/webserv/html/" + path;
+
+        std::ofstream file(filePath.c_str(), std::ios::binary);
+        if (!file.is_open())
+        {
+            return (createResponse("500 INternal server error","text/plain", "500 internal server error"));
+        }
+        file << client->getRequest().body;
+        file.close();
+        return createResponse("Archivo creado correctamente", "text/plain", "201 Created");
     }
     return (createResponse("418 Soy una tetera","text/plain", "418 Soy una tetera"));
 }
