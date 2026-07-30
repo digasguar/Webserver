@@ -14,6 +14,8 @@ void Client::setRequestPath(const std::string& path){this->_request.path = path;
 
 void Client::setRequestVersion(const std::string& version){this->_request.version = version;}
 
+void Client::setRecuestBody(const std::string& body){this->_request.body = body;}
+
 
 
 

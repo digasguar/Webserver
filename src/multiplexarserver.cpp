@@ -36,7 +36,7 @@ int main()
         std::cout << "FAILURE EPOLL\n";
         exit(EXIT_FAILURE);
     }
-    epoll_event event {};
+    epoll_event event ;
     event.data.fd = fd;
     event.events = EPOLLIN;
 
@@ -60,13 +60,13 @@ int main()
             int current_fd = events[i].data.fd;
             if (current_fd == fd)
             {
-                sockaddr_in client {};
+                sockaddr_in client;
                 socklen_t len = sizeof(client);
                 int fd_client = accept(fd,(struct sockaddr*)&client, &len);
                 if (fd_client < 0)
                     continue;
                 clients.insert(std::make_pair(fd_client, Client(fd_client)));
-                epoll_event client_event{};
+                epoll_event client_event;
                 client_event.data.fd = fd_client;
                 client_event.events = EPOLLIN;
 
@@ -88,9 +88,10 @@ int main()
 
                 client.recv_buffer.append(buffer, bytes);
                 //hardcodeado
-                client.setRequestType("GET");
+                client.setRequestType("POST");
                 client.setRequestPath("/indexa.html");
                 client.setRequestVersion("http1.1");
+                client.setRecuestBody("hola que tal?");
 
                 Procesrequest(&client);
 

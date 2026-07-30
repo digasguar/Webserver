@@ -18,6 +18,7 @@ public:
     void setRequestType(const std::string& type);
     void setRequestPath(const std::string& path);
     void setRequestVersion(const std::string& version);
+    void setRecuestBody(const std::string& body);
     Client(int socket);
     ~Client();
 };

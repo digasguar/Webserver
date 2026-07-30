@@ -52,9 +52,13 @@ std::string Procesrequest(Client * client)
 
 std::string createResponse(const std::string body, const std::string type, const std::string status)
 {
+
+    std::stringstream ss;
+    ss << body.size();
+    std::string contentLength = ss.str();
     return ("HHTTP/1.1 " + status + "\r\n"
         "Content-Type: " + type + "\r\n"
-        "Content-Length: " + std::to_string(body.size()) + "\r\n"
+        "Content-Length: " + contentLength + "\r\n"
         "Conection: close\r\n"
         "\r\n" + 
         body); 
