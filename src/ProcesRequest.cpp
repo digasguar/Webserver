@@ -10,13 +10,13 @@ std::string Procesrequest(Client * client)
 
         if (path == "/")
             path = "/index.html";
-        std::string filePath = "/sgoinfre/students/dgasco-g/webserv/html/" + path;
+        std::string filePath = "/home/asgalean/COMMON CORE/Entregas/Circle5/WEBSERBER/Webserver/html" + path;
 
         std::ifstream file(filePath.c_str(), std::ios::binary);
 
         if (!file.is_open())
         {
-            std::string errorPath = "/sgoinfre/students/dgasco-g/webserv/html/404.jpg";
+            std::string errorPath = "/home/asgalean/COMMON CORE/Entregas/Circle5/WEBSERBER/Webserver/html/404.jpg";
             std::ifstream errorFile(errorPath.c_str(), std::ios::binary);
             std::stringstream buffer;
             buffer << errorFile.rdbuf();

@@ -87,10 +87,17 @@ int main()
                 Client& client = clients.at(current_fd);
 
                 client.recv_buffer.append(buffer, bytes);
+                
+                std::cout << client.recv_buffer << std::endl;
+                
+                ////////
+                client.parseRequest();
+                ////////
+                
                 //hardcodeado
-                client.setRequestType("GET");
-                client.setRequestPath("/indexa.html");
-                client.setRequestVersion("http1.1");
+                /*client.setRequestType("GET");
+                client.setRequestPath("/index.html");
+                client.setRequestVersion("http1.1");*/
 
                 Procesrequest(&client);
 
