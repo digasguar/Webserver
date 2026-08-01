@@ -14,7 +14,7 @@ int main()
 
     sockaddr_in sockaddr;
     sockaddr.sin_family = AF_INET;
-    sockaddr.sin_port = htons(8080);
+    sockaddr.sin_port = htons(8000);
     sockaddr.sin_addr.s_addr = INADDR_ANY; // acepta peticiones de cualquier interfaz de red
 
     if (bind(fd, (struct sockaddr*)&sockaddr, sizeof(sockaddr)) < 0) // asociar el puerto al soker
@@ -88,10 +88,11 @@ int main()
 
                 client.recv_buffer.append(buffer, bytes);
                 //hardcodeado
-                client.setRequestType("POST");
-                client.setRequestPath("/indexa.html");
+                client.setRequestType("GET");
+                client.setRequestPath("/indexaasas.html");
                 client.setRequestVersion("http1.1");
                 client.setRecuestBody("hola que tal?");
+                std::cout << client.recv_buffer;
 
                 Procesrequest(&client);
 
