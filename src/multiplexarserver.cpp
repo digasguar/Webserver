@@ -15,7 +15,7 @@ int main()
 
     sockaddr_in sockaddr;
     sockaddr.sin_family = AF_INET;
-    sockaddr.sin_port = htons(8000);
+    sockaddr.sin_port = htons(8080);
     sockaddr.sin_addr.s_addr = INADDR_ANY; // acepta peticiones de cualquier interfaz de red
 
     if (bind(fd, (struct sockaddr*)&sockaddr, sizeof(sockaddr)) < 0) // asociar el puerto al soker
@@ -70,13 +70,14 @@ int main()
                 clients.insert(std::make_pair(fd_client, Client(fd_client)));
                 epoll_event client_event;
                 client_event.data.fd = fd_client;
-                client_event.events = EPOLLIN | EPOLLOUT;
+                client_event.events = EPOLLIN;
 
                 epoll_ctl(epoll_fd,EPOLL_CTL_ADD, fd_client, &client_event);
                 std::cout << "nuevo cliente creado" << std::endl;
             }
             else
             {
+                std::cout << "asjha\n";
                 if (events[i].events & EPOLLIN)
                 {
                     char buffer[4094];
@@ -84,6 +85,7 @@ int main()
                     int bytes = recv(current_fd, buffer, sizeof(buffer), 0);
                     if (bytes <= 0)
                     {
+                        clients.erase(current_fd);
                         close(current_fd);
                         epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL);
                         continue;
@@ -115,6 +117,7 @@ int main()
                         ssize_t sent = send(current_fd, headers.c_str() + client.getHeaderOffset(), headers.size() - client.getHeaderOffset(),0);
                         if (sent <= 0)
                         {
+                            clients.erase(current_fd);
                             close(current_fd);
                             epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL);
                             continue;
@@ -128,7 +131,8 @@ int main()
                         ssize_t bytes = read(client.getFileFd(), client.getBuffer(), 4096);
                         if (bytes <=0)
                         {
-                            close(client.getFileFd());
+                            clients.erase(current_fd);
+                           // close(client.getFileFd());
                             close(current_fd);
                             epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL);
                             continue;
@@ -142,6 +146,7 @@ int main()
                     if (sent <= 0)
                     {
                         close(current_fd);
+                        close(client.getFileFd());
                         epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL);
                         continue;
                     }
