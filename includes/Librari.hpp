@@ -1,6 +1,8 @@
 #ifndef LIBRARI_H
 # define LIBRARI_H
-#include "Client.hpp"
+#pragma once
+
+class Client;
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <unistd.h>

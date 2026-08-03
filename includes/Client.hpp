@@ -1,7 +1,8 @@
+#ifndef CLIENT_HPP
+# define CLIENT_HPP
 #include <string>
 #include "Librari.hpp"
 #include "HttpRequest.hpp"
-
 enum ClientState
 {
     READING_REQUEST,
@@ -14,21 +15,23 @@ class Client
 private:
     int _socket;
 
-    HttpRequesr _request;
+    HttpRequesr _request;//la peticion parseada de cliente
 
-    ClientState _state;
+    ClientState _state; //estado del cliente
 
-    std::string _responseHeaders;
+    std::string _responseHeaders; //los headers de la respuesta
 
-    char _buffer[4096];
+    size_t _headerOffset; // cuanto hemos enviado de los headers
 
-    int _file_fd;
+    bool _isRegularFile; //para el urandom y pipes
 
-    ssize_t _bytes_read;
+    off_t _fileSize; // cuanto pesa el archivo 
 
-    size_t _bytesSent;
+    char _buffer[4096]; // el contenido del archivo
 
-    bool _headerSend;
+    off_t _fileOffset;// por donde nos hemos quedado del archivo
+
+    int _file_fd; //que archivo es
 
 public:
     std::string recv_buffer;
@@ -42,7 +45,20 @@ public:
     void setRequestVersion(const std::string &version);
     void setRecuestBody(const std::string &body);
     void setFileFd(const int fd);
+    void setHeaderOffset(const size_t offset);
+    void setFileOffset(const off_t offset);
+    void setIsRegularFile(const bool regular);
+    void setFileSize(const size_t size);
+    void setBuffer(const char *buffer, size_t size);
 
+    size_t getHeaderOffset();
+    char *getBuffer();
+    off_t getFileOffset();
+    bool getIsRegularFile();
+    off_t getFileSize();
+    int getFileFd();
+    std::string getResponseHeaders();
     Client(int socket);
     ~Client();
 };
+#endif

@@ -1,10 +1,11 @@
 #include "../includes/Librari.hpp"
+#include "../includes/Client.hpp"
 
 std::string createHeadersLength(const std::string type, const std::string status, size_t length)
 {
     std::stringstream ss;
     ss << length;
-    return ("HHTTP/1.1 " + status + "\r\n"
+    return ("HTTP/1.1 " + status + "\r\n"
         "Content-Type: " + type + "\r\n"
         "Content-Length: " + ss.str() + "\r\n"
         "Conection: close\r\n"
@@ -13,7 +14,7 @@ std::string createHeadersLength(const std::string type, const std::string status
 
 std::string createChungedHeader(const std::string type, const std::string status)
 {
-    return ("HHTTP/1.1 " + status + "\r\n"
+    return ("HTTP/1.1 " + status + "\r\n"
         "Content-Type: " + type + "\r\n"
         "Transfer-Encoding: chunked" + "\r\n"
         "Conection: close\r\n"
@@ -30,7 +31,13 @@ void requestGet(Client *client)
     if (path == "/")
         path = "/index.html";
     std::string filePath = "/sgoinfre/students/dgasco-g/webserv/html/" + path;
-    std::string typeFile = "text/plain";
+    std::string typeFile;
+    if (path.find(".html") != std::string::npos)
+        typeFile = "text/html";
+    else if (path.find(".jpg") != std::string::npos)
+        typeFile = "image/jpeg";
+    else 
+        typeFile = "text/plain";
     int file = open(filePath.c_str(), O_RDONLY);
     struct stat st;
     if (file < 0)
@@ -45,7 +52,7 @@ void requestGet(Client *client)
         client->setFileFd(errorfd);
         return ;
     }
-    if (stat(path.c_str(), &st) < 0)
+    if (stat(filePath.c_str(), &st) < 0)
     {
         ; 
     }
@@ -165,10 +172,10 @@ void Procesrequest(Client * client)
     {
         return (requestGet(client));
     }
-    else if (client->getRequest().type == "POST")
+/*     else if (client->getRequest().type == "POST")
     {
         return(requestPost(client));
     }
-    return (createHeader("418 Soy una tetera","text/plain"));
+    return (createHeader("418 Soy una tetera","text/plain")); */
 }
 

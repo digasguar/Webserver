@@ -1,5 +1,6 @@
 
 #include "../includes/Librari.hpp"
+#include "../includes/Client.hpp"
 
 
 int main()
@@ -8,7 +9,7 @@ int main()
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd == -1)
     {
-        std::cout << "FAILURE CREATE SOCKET" << errno <<std::endl;
+        std::cout << "FAILURE CREATE SOCKET" << std::endl;
         exit(EXIT_FAILURE); 
     }
 
@@ -19,14 +20,14 @@ int main()
 
     if (bind(fd, (struct sockaddr*)&sockaddr, sizeof(sockaddr)) < 0) // asociar el puerto al soker
     {
-        std::cout << "FAILURE BIND" << errno << std::endl;
+        std::cout << "FAILURE BIND" << std::endl;
         exit(EXIT_FAILURE);
     }
 
     // (que fd escucha, numero de peticiones antes que se bloquee)
     if (listen(fd, 42) < 0) // escucha xd
     {
-        std::cout << "FAILURE LISTEN" << errno << std::endl;
+        std::cout << "FAILURE LISTEN" << std::endl;
         exit(EXIT_FAILURE);
     }
 
@@ -65,41 +66,90 @@ int main()
                 int fd_client = accept(fd,(struct sockaddr*)&client, &len);
                 if (fd_client < 0)
                     continue;
+                fcntl(fd_client, F_SETFL, O_NONBLOCK);
                 clients.insert(std::make_pair(fd_client, Client(fd_client)));
                 epoll_event client_event;
                 client_event.data.fd = fd_client;
-                client_event.events = EPOLLIN;
+                client_event.events = EPOLLIN | EPOLLOUT;
 
                 epoll_ctl(epoll_fd,EPOLL_CTL_ADD, fd_client, &client_event);
                 std::cout << "nuevo cliente creado" << std::endl;
             }
             else
             {
-                char buffer[4094];
-
-                int bytes = recv(current_fd, buffer, sizeof(buffer), 0);
-                if (bytes <= 0)
+                if (events[i].events & EPOLLIN)
                 {
-                    close(current_fd);
-                    epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL);
-                    continue;
+                    char buffer[4094];
+
+                    int bytes = recv(current_fd, buffer, sizeof(buffer), 0);
+                    if (bytes <= 0)
+                    {
+                        close(current_fd);
+                        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL);
+                        continue;
+                    }
+                    Client& client = clients.at(current_fd);
+
+                    client.recv_buffer.append(buffer, bytes);
+                    //hardcodeado
+                    client.setRequestType("GET");
+                    client.setRequestPath("/index.html");
+                    client.setRequestVersion("http1.1");
+                    client.setRecuestBody("hola que tal?");
+
+                    Procesrequest(&client);
+                    epoll_event response_event;
+                    response_event.data.fd = current_fd;
+                    response_event.events = EPOLLOUT;
+                    epoll_ctl(epoll_fd, EPOLL_CTL_MOD, current_fd, &response_event);
                 }
-                Client& client = clients.at(current_fd);
-
-                client.recv_buffer.append(buffer, bytes);
-                //hardcodeado
-                client.setRequestType("GET");
-                client.setRequestPath("/indexaasas.html");
-                client.setRequestVersion("http1.1");
-                client.setRecuestBody("hola que tal?");
-                std::cout << client.recv_buffer;
-
-                Procesrequest(&client);
-
-                std::string response = Procesrequest(&client);
-                send(current_fd, response.data(), response.size(), 0);
-                close(current_fd);
-                epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL);
+                else if(events[i].events & EPOLLOUT)
+                {
+                    std::cout << "ENTRO EN EPOLLOUT FD: " << current_fd << std::endl;
+                    Client& client = clients.at(current_fd);
+                    std::string headers = client.getResponseHeaders();
+                    if (client.getHeaderOffset() < headers.size())
+                    {
+                        std::cout << "HEADERS A ENVIAR:\n";
+                        std::cout << headers << "\n";
+                        ssize_t sent = send(current_fd, headers.c_str() + client.getHeaderOffset(), headers.size() - client.getHeaderOffset(),0);
+                        if (sent <= 0)
+                        {
+                            close(current_fd);
+                            epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL);
+                            continue;
+                        }
+                        client.setHeaderOffset(client.getHeaderOffset() + sent);
+                        if (client.getHeaderOffset() < headers.size())
+                            continue;
+                    }
+                    if (client.getFileOffset() == client.getFileSize())
+                    {
+                        ssize_t bytes = read(client.getFileFd(), client.getBuffer(), 4096);
+                        if (bytes <=0)
+                        {
+                            close(client.getFileFd());
+                            close(current_fd);
+                            epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL);
+                            continue;
+                        }
+                        client.setFileSize(bytes);
+                        client.setFileOffset(0);
+                    }
+                    std::cout << "envio :" << client.getFileSize() - client.getFileOffset();
+                    std::cout << "--------------------------------------------------------------------------------------";
+                    ssize_t sent = send(current_fd, client.getBuffer() + client.getFileOffset() ,client.getFileSize() - client.getFileOffset(),0 );
+                    if (sent <= 0)
+                    {
+                        close(current_fd);
+                        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL);
+                        continue;
+                    }
+                    client.setFileOffset(client.getFileOffset() + sent);
+                    if (client.getFileOffset() < client.getFileSize())
+                        continue;
+                    
+                }
             }
        }
     }
