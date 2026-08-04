@@ -12,7 +12,7 @@ std::string createHeadersLength(const std::string type, const std::string status
         "\r\n");
 }
 
-std::string createChungedHeader(const std::string type, const std::string status)
+std::string createChunkedHeader(const std::string type, const std::string status)
 {
     return ("HTTP/1.1 " + status + "\r\n"
         "Content-Type: " + type + "\r\n"
@@ -20,9 +20,6 @@ std::string createChungedHeader(const std::string type, const std::string status
         "Conection: close\r\n"
         "\r\n");
 }
-
-
-
 
 void requestGet(Client *client)
 {
@@ -41,14 +38,18 @@ void requestGet(Client *client)
     int file = open(filePath.c_str(), O_RDONLY);
     struct stat st;
     if (file < 0)
-    {
-        path = "/dev/urandom"; //pepe el urandom no porfavor, cualquier cosa menos eso 
+    { 
+        path = "/dev/urandom";
         int errorfd = open(path.c_str(), O_RDONLY); // no se si con el archivo de configuracion podriamos hacer que la paguina de conf siempre se pueda abrir
         stat(path.c_str(), &st);// esto tambien puede fallar, deveria prevenirlo pero me da pereza
         if (S_ISREG(st.st_mode) != 0)
             client->setResponseHeaders(createHeadersLength(typeFile, "404", st.st_size));
         else
-            client->setResponseHeaders(createChungedHeader(typeFile, "404"));
+        {
+            client->setIsRegularFile(false);
+            std::cout << "Chunged ?";
+            client->setResponseHeaders(createChunkedHeader(typeFile, "404"));
+        }
         client->setFileFd(errorfd);
         return ;
     }
@@ -59,34 +60,9 @@ void requestGet(Client *client)
     if (S_ISREG(st.st_mode) != 0)
         client->setResponseHeaders(createHeadersLength(typeFile, "200", st.st_size));
     else
-        client->setResponseHeaders(createChungedHeader(typeFile, "200"));
+        client->setResponseHeaders(createChunkedHeader(typeFile, "200"));
     client->setFileFd(file);
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 /*
 std::string createHeader(const std::string type, const std::string status, bool special_size)

@@ -58,6 +58,9 @@ public:
     off_t getFileSize();
     int getFileFd();
     std::string getResponseHeaders();
+
+
+    void parseRequest();
     Client(int socket);
     ~Client();
 };
