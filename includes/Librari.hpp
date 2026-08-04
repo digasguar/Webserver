@@ -1,6 +1,8 @@
 #ifndef LIBRARI_H
 # define LIBRARI_H
-#include "Client.hpp"
+#pragma once
+
+class Client;
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -11,8 +13,11 @@
 #include <map>
 #include <fstream>
 #include <sstream>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 
-std::string Procesrequest(Client * client);
+void Procesrequest(Client * client);
 
 #endif

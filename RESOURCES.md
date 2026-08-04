@@ -42,4 +42,8 @@ Vídeo centrado en el funcionamiento interno de HTTP y la implementación de un 
 
 🔗 https://www.youtube.com/watch?v=YwHErWJIh6Y&t=1402s
 
+
+
+🔗 https://http.dev/http-connection
+
 ---
