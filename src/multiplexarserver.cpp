@@ -3,7 +3,7 @@
 #include "../includes/Client.hpp"
 
 
-int recive_request(std::map<int, Client> &clients,int current_fd, int epoll_fd)
+int recive_request(std::map<int, Client> &clients, int current_fd, int epoll_fd)
 {
     char buffer[4094];
 
@@ -36,24 +36,27 @@ void close_conection(std::map<int, Client> &clients, int current_fd, int epoll_f
     epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL);
 }
 
-int prepare_response(std::map<int, Client> clients, Client client, int current_fd, int epoll_fd)
+int prepare_response(std::map<int, Client> &clients, Client &client, int current_fd, int epoll_fd)
 {
     if (!client.getIsRegularFile())
     {
         std::string buffer;
         buffer.resize(4091);
-        if (client.getFileOffset() < 45728)
+        ssize_t bytes = read(client.getFileFd(), &buffer[0], buffer.size());
+        std::string chunk;
+        if (bytes > 45728)
         {
-            ssize_t bytes = read(client.getFileFd(), &buffer[0], buffer.size());
-            if (bytes > 0)
-            {
-                buffer.resize(bytes);
-                buffer.append("0\r\n\r\n");
-            }
+            std::stringstream ss;
+            ss << std::hex << bytes;
+            chunk = ss.str() + "\r\n";
+            chunk.append(buffer.data(), bytes);
+            chunk.append("\r\n");
         }
         else
-        buffer.append("0\r\n\r\n");
-        client.setBuffer(buffer.c_str(), buffer.size());
+            chunk = "0\r\n\r\n";
+        client.setBuffer(chunk.c_str(), chunk.size());
+        client.setFileSize(chunk.size());
+        client.setFileOffset(0);
         return (0);
     }
     ssize_t bytes = read(client.getFileFd(), client.getBuffer(), 4096);
