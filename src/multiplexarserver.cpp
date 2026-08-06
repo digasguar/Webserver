@@ -29,11 +29,13 @@ int recive_request(std::map<int, Client> &clients, int current_fd, int epoll_fd)
     epoll_ctl(epoll_fd, EPOLL_CTL_MOD, current_fd, &response_event);
     return (1);
 }
+
 void close_conection(std::map<int, Client> &clients, int current_fd, int epoll_fd)
 {
     clients.erase(current_fd);
     close(current_fd);
     epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL);
+    std::cout << "FIN\n";
 }
 
 int prepare_response(std::map<int, Client> &clients, Client &client, int current_fd, int epoll_fd)
@@ -41,10 +43,10 @@ int prepare_response(std::map<int, Client> &clients, Client &client, int current
     if (!client.getIsRegularFile())
     {
         std::string buffer;
-        buffer.resize(4091);
+        buffer.resize(4080);
         ssize_t bytes = read(client.getFileFd(), &buffer[0], buffer.size());
         std::string chunk;
-        if (bytes > 45728)
+        if (bytes > 0)
         {
             std::stringstream ss;
             ss << std::hex << bytes;
@@ -57,7 +59,7 @@ int prepare_response(std::map<int, Client> &clients, Client &client, int current
         client.setBuffer(chunk.c_str(), chunk.size());
         client.setFileSize(chunk.size());
         client.setFileOffset(0);
-        return (0);
+        return (1);
     }
     ssize_t bytes = read(client.getFileFd(), client.getBuffer(), 4096);
     if (bytes <=0)
@@ -69,6 +71,18 @@ int prepare_response(std::map<int, Client> &clients, Client &client, int current
     client.setFileOffset(0);
     return (1);
 }
+
+void sendHeaders(int current_fd, std::string headers, Client &client, std::map<int , Client> &clients, int epoll_fd)
+{
+    ssize_t sent = send(current_fd, headers.c_str() + client.getHeaderOffset(), headers.size() - client.getHeaderOffset(),0);
+    if (sent <= 0)
+    {
+        close_conection(clients, current_fd, epoll_fd);
+        return ;
+    }
+    client.setHeaderOffset(client.getHeaderOffset() + sent);
+}
+
 
 int main()
 {
@@ -156,27 +170,13 @@ int main()
                     std::string headers = client.getResponseHeaders();
                     if (client.getHeaderOffset() < headers.size())
                     {
-                        ssize_t sent = send(current_fd, headers.c_str() + client.getHeaderOffset(), headers.size() - client.getHeaderOffset(),0);
-                        if (sent <= 0)
-                        {
-                            close_conection(clients, current_fd, epoll_fd);
-                            continue;
-                        }
-                        client.setHeaderOffset(client.getHeaderOffset() + sent);
-                        if (client.getHeaderOffset() < headers.size())
-                            continue;
+                        sendHeaders(current_fd,headers,client,clients, epoll_fd);
+                        continue;
                     }
                     if (client.getFileOffset() == client.getFileSize())
                     {
                         if (!prepare_response(clients, client, current_fd, epoll_fd))
                             continue ;                       
-                    }
-                    if (client.getFileOffset() > 45728)
-                    {
-                        send(current_fd, client.getBuffer() + client.getFileOffset() ,0,0 );
-                        close_conection(clients, current_fd, epoll_fd);
-                        close(client.getFileFd());
-                        continue;
                     }
                     ssize_t sent = send(current_fd, client.getBuffer() + client.getFileOffset() ,client.getFileSize() - client.getFileOffset(),0 );
                     if (sent <= 0)
