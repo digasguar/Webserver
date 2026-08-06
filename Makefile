@@ -1,7 +1,7 @@
 NAME = webserv
 
 CXX = g++
-CXXFLAGS = -Wall -Wextra -Werror -std=c++98 -Iinclude
+CXXFLAGS = -Wall -Wextra -Werror -std=c++98 -Iinclude -O3
 
 SRCS = $(shell find src -name "*.cpp")
 OBJS = $(SRCS:.cpp=.o)
