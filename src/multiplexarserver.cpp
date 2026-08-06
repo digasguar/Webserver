@@ -55,7 +55,10 @@ int prepare_response(std::map<int, Client> &clients, Client &client, int current
             chunk.append("\r\n");
         }
         else
+        {
             chunk = "0\r\n\r\n";
+            close(client.getFileFd());
+        }
         client.setBuffer(chunk.c_str(), chunk.size());
         client.setFileSize(chunk.size());
         client.setFileOffset(0);
@@ -82,7 +85,6 @@ void sendHeaders(int current_fd, std::string headers, Client &client, std::map<i
     }
     client.setHeaderOffset(client.getHeaderOffset() + sent);
 }
-
 
 int main()
 {
