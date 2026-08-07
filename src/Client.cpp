@@ -68,3 +68,18 @@ void Client::parseRequest()
     setRequestPath(path);
     setRequestVersion(version);
 }
+
+void Client::resetRequest()
+{
+    this->setFileFd(-1);
+    this->setFileOffset(0);
+    this->setFileSize(0);
+    this->setIsRegularFile(true);
+    this->setHeaderOffset(0);
+    this->getResponseHeaders().clear();
+    this->recv_buffer.clear();
+    this->_request.body.clear();
+    this->_request.path.clear();
+    this->_request.type.clear();
+    this->_request.version.clear();
+}

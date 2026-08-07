@@ -59,7 +59,7 @@ public:
     int getFileFd();
     std::string getResponseHeaders();
 
-
+    void resetRequest();
     void parseRequest();
     Client(int socket);
     ~Client();

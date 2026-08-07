@@ -2,6 +2,22 @@
 #include "../includes/Librari.hpp"
 #include "../includes/Client.hpp"
 
+int createClient(std::map<int, Client> &clients, int fd, int epoll_fd)
+{
+    sockaddr_in client;
+    socklen_t len = sizeof(client);
+    int fd_client = accept(fd,(struct sockaddr*)&client, &len);
+    if (fd_client < 0)
+        return (0);
+    fcntl(fd_client, F_SETFL, O_NONBLOCK);
+    clients.insert(std::make_pair(fd_client, Client(fd_client)));
+    epoll_event client_event;
+    client_event.data.fd = fd_client;
+    client_event.events = EPOLLIN;
+
+    epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd_client, &client_event);
+    return (1);
+}
 
 int recive_request(std::map<int, Client> &clients, int current_fd, int epoll_fd)
 {
@@ -55,7 +71,10 @@ int prepare_response(std::map<int, Client> &clients, Client &client, int current
             chunk.append("\r\n");
         }
         else
+        {
             chunk = "0\r\n\r\n";
+            close(client.getFileFd());
+        }
         client.setBuffer(chunk.c_str(), chunk.size());
         client.setFileSize(chunk.size());
         client.setFileOffset(0);
@@ -83,17 +102,8 @@ void sendHeaders(int current_fd, std::string headers, Client &client, std::map<i
     client.setHeaderOffset(client.getHeaderOffset() + sent);
 }
 
-
-int main()
+void prepare_socket(int fd)
 {
-    //(ipv4, TCP, protocolo con 0 el sistema lo eligue por ti)
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd == -1)
-    {
-        std::cout << "FAILURE CREATE SOCKET" << std::endl;
-        exit(EXIT_FAILURE); 
-    }
-
     sockaddr_in sockaddr;
     sockaddr.sin_family = AF_INET;
     sockaddr.sin_port = htons(8080);
@@ -111,7 +121,46 @@ int main()
         std::cout << "FAILURE LISTEN" << std::endl;
         exit(EXIT_FAILURE);
     }
+}
 
+int sendResponse(std::map<int, Client> &clients, int current_fd, int epoll_fd)
+{
+    std::cout << "ENTRO EN EPOLLOUT FD: " << current_fd << std::endl;
+    Client& client = clients.at(current_fd);
+    std::string headers = client.getResponseHeaders();
+    if (client.getHeaderOffset() < headers.size())
+    {
+        sendHeaders(current_fd,headers,client,clients, epoll_fd);
+        return (0);
+    }
+    if (client.getFileOffset() == client.getFileSize())
+    {
+        if (!prepare_response(clients, client, current_fd, epoll_fd))
+            return (0) ;                       
+    }
+    ssize_t sent = send(current_fd, client.getBuffer() + client.getFileOffset() ,client.getFileSize() - client.getFileOffset(),0 );
+    if (sent <= 0)
+    {
+        close_conection(clients, current_fd, epoll_fd);
+        close(client.getFileFd());
+        return (0);
+    }
+    client.setFileOffset(client.getFileOffset() + sent);
+    if (client.getFileOffset() < client.getFileSize())
+        return (0);
+    return (1);
+}
+
+int main()
+{
+    //(ipv4, TCP, protocolo con 0 el sistema lo eligue por ti)
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd == -1)
+    {
+        std::cout << "FAILURE CREATE SOCKET" << std::endl;
+        exit(EXIT_FAILURE); 
+    }
+    prepare_socket(fd);
     int epoll_fd = epoll_create1(0);
     if (epoll_fd == -1)
     {
@@ -142,18 +191,8 @@ int main()
             int current_fd = events[i].data.fd;
             if (current_fd == fd)
             {
-                sockaddr_in client;
-                socklen_t len = sizeof(client);
-                int fd_client = accept(fd,(struct sockaddr*)&client, &len);
-                if (fd_client < 0)
-                    continue;
-                fcntl(fd_client, F_SETFL, O_NONBLOCK);
-                clients.insert(std::make_pair(fd_client, Client(fd_client)));
-                epoll_event client_event;
-                client_event.data.fd = fd_client;
-                client_event.events = EPOLLIN;
-
-                epoll_ctl(epoll_fd,EPOLL_CTL_ADD, fd_client, &client_event);
+                if(!createClient(clients, fd, epoll_fd))
+                    continue ;
                 std::cout << "nuevo cliente creado" << std::endl;
             }
             else
@@ -165,29 +204,8 @@ int main()
                 }
                 else if(events[i].events & EPOLLOUT)
                 {
-                    std::cout << "ENTRO EN EPOLLOUT FD: " << current_fd << std::endl;
-                    Client& client = clients.at(current_fd);
-                    std::string headers = client.getResponseHeaders();
-                    if (client.getHeaderOffset() < headers.size())
-                    {
-                        sendHeaders(current_fd,headers,client,clients, epoll_fd);
-                        continue;
-                    }
-                    if (client.getFileOffset() == client.getFileSize())
-                    {
-                        if (!prepare_response(clients, client, current_fd, epoll_fd))
-                            continue ;                       
-                    }
-                    ssize_t sent = send(current_fd, client.getBuffer() + client.getFileOffset() ,client.getFileSize() - client.getFileOffset(),0 );
-                    if (sent <= 0)
-                    {
-                        close_conection(clients, current_fd, epoll_fd);
-                        close(client.getFileFd());
-                        continue;
-                    }
-                    client.setFileOffset(client.getFileOffset() + sent);
-                    if (client.getFileOffset() < client.getFileSize())
-                        continue;
+                    if (!sendResponse(clients, current_fd, epoll_fd))
+                        continue ;
                 }
             }
        }

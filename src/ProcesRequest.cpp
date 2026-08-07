@@ -75,18 +75,25 @@ void requestPost(Client *client)
     file.close();
 }
 
+void requestDelete(Client *client)
+{
+    std::string path = client->getRequest().path;
+
+    std::string filePath = "/sgoinfre/students/dgasco-g/webserv/html/" + path;
+
+    if (std::remove(filePath.c_str()) != 0)
+    {
+       // client->setResponseHeaders(createHeadersLength())
+    }
+}
 
 void Procesrequest(Client * client)
 {
-
     if (client->getRequest().type == "GET")
-    {
         return (requestGet(client));
-    }
-/*     else if (client->getRequest().type == "POST")
-    {
-        return(requestPost(client));
-    }
-    return (createHeader("418 Soy una tetera","text/plain")); */
+    else if (client->getRequest().type == "POST")
+        return (requestPost(client));
+    else if (client->getRequest().type == "DELETE")
+        return (requestDelete(client));
 }
 
