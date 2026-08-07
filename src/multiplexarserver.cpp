@@ -19,7 +19,6 @@ int createClient(std::map<int, Client> &clients, int fd, int epoll_fd)
     return (1);
 }
 
-
 int recive_request(std::map<int, Client> &clients, int current_fd, int epoll_fd)
 {
     char buffer[4094];
@@ -124,6 +123,34 @@ void prepare_socket(int fd)
     }
 }
 
+int sendResponse(std::map<int, Client> &clients, int current_fd, int epoll_fd)
+{
+    std::cout << "ENTRO EN EPOLLOUT FD: " << current_fd << std::endl;
+    Client& client = clients.at(current_fd);
+    std::string headers = client.getResponseHeaders();
+    if (client.getHeaderOffset() < headers.size())
+    {
+        sendHeaders(current_fd,headers,client,clients, epoll_fd);
+        return (0);
+    }
+    if (client.getFileOffset() == client.getFileSize())
+    {
+        if (!prepare_response(clients, client, current_fd, epoll_fd))
+            return (0) ;                       
+    }
+    ssize_t sent = send(current_fd, client.getBuffer() + client.getFileOffset() ,client.getFileSize() - client.getFileOffset(),0 );
+    if (sent <= 0)
+    {
+        close_conection(clients, current_fd, epoll_fd);
+        close(client.getFileFd());
+        return (0);
+    }
+    client.setFileOffset(client.getFileOffset() + sent);
+    if (client.getFileOffset() < client.getFileSize())
+        return (0);
+    return (1);
+}
+
 int main()
 {
     //(ipv4, TCP, protocolo con 0 el sistema lo eligue por ti)
@@ -177,29 +204,8 @@ int main()
                 }
                 else if(events[i].events & EPOLLOUT)
                 {
-                    std::cout << "ENTRO EN EPOLLOUT FD: " << current_fd << std::endl;
-                    Client& client = clients.at(current_fd);
-                    std::string headers = client.getResponseHeaders();
-                    if (client.getHeaderOffset() < headers.size())
-                    {
-                        sendHeaders(current_fd,headers,client,clients, epoll_fd);
-                        continue;
-                    }
-                    if (client.getFileOffset() == client.getFileSize())
-                    {
-                        if (!prepare_response(clients, client, current_fd, epoll_fd))
-                            continue ;                       
-                    }
-                    ssize_t sent = send(current_fd, client.getBuffer() + client.getFileOffset() ,client.getFileSize() - client.getFileOffset(),0 );
-                    if (sent <= 0)
-                    {
-                        close_conection(clients, current_fd, epoll_fd);
-                        close(client.getFileFd());
-                        continue;
-                    }
-                    client.setFileOffset(client.getFileOffset() + sent);
-                    if (client.getFileOffset() < client.getFileSize())
-                        continue;
+                    if (!sendResponse(clients, current_fd, epoll_fd))
+                        continue ;
                 }
             }
        }
