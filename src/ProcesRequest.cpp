@@ -66,13 +66,47 @@ void requestPost(Client *client)
 
     std::string filePath = "./html" + path;
 
-    std::ofstream file(filePath.c_str(), std::ios::binary);
+    if (path.find("..") != std::string::npos)
+    {
+        std::string body = "Forbidden";
+        client->setResponseHeaders(createHeadersLength("text/plain", "403 Forbidden", body.size()));
+        client->setBuffer(body.c_str(), body.size());
+        client->setFileSize(body.size());
+        client->setFileOffset(0);
+        client->setIsRegularFile(true);
+        return ;
+    }
+    struct stat st;
+    bool exist = (stat(filePath.c_str(),&st) == 0);
+    std::ofstream file(filePath.c_str(), std::ios::binary | std::ios::trunc);
+    std::string body;
+    std::string status;
+
     if (!file.is_open())
     {
-        client->setResponseHeaders(createHeadersLength("text/plain", "200", 0));
+        body = "Could not write file";
+        status = "500 Internal Server Error";
     }
-    file << client->getRequest().body;
-    file.close();
+    else
+    {
+        file << client->getRequest().body;
+        file.close();
+        if (exist)
+        {
+            body = "Updated";
+            status = "200 OK";
+        }
+        else
+        {
+            body = "Created";
+            status = "201 Created";
+        }
+    }
+    client->setResponseHeaders(createHeadersLength("text/plain",status, body.size()));
+    client->setBuffer(body.c_str(),body.size());
+    client->setFileOffset(0);
+    client->setIsRegularFile(true);
+    client->setFileSize(body.size());
 }
 
 void requestDelete(Client *client)
@@ -103,4 +137,3 @@ void Procesrequest(Client * client)
     else if (client->getRequest().type == "DELETE")
         return (requestDelete(client));
 }
-
