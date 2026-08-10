@@ -57,38 +57,41 @@ void close_conection(std::map<int, Client> &clients, int current_fd, int epoll_f
 
 int prepare_response(std::map<int, Client> &clients, Client &client, int current_fd, int epoll_fd)
 {
-    if (!client.getIsRegularFile())
+    if (client.getFileFd() != -1)
     {
-        std::string buffer;
-        buffer.resize(4080);
-        ssize_t bytes = read(client.getFileFd(), &buffer[0], buffer.size());
-        std::string chunk;
-        if (bytes > 0)
+        if (!client.getIsRegularFile())
         {
-            std::stringstream ss;
-            ss << std::hex << bytes;
-            chunk = ss.str() + "\r\n";
-            chunk.append(buffer.data(), bytes);
-            chunk.append("\r\n");
+            std::string buffer;
+            buffer.resize(4080);
+            ssize_t bytes = read(client.getFileFd(), &buffer[0], buffer.size());
+            std::string chunk;
+            if (bytes > 0)
+            {
+                std::stringstream ss;
+                ss << std::hex << bytes;
+                chunk = ss.str() + "\r\n";
+                chunk.append(buffer.data(), bytes);
+                chunk.append("\r\n");
+            }
+            else
+            {
+                chunk = "0\r\n\r\n";
+                close(client.getFileFd());
+            }
+            client.setBuffer(chunk.c_str(), chunk.size());
+            client.setFileSize(chunk.size());
+            client.setFileOffset(0);
+            return (1);
         }
-        else
+        ssize_t bytes = read(client.getFileFd(), client.getBuffer(), 4096);
+        if (bytes <=0)
         {
-            chunk = "0\r\n\r\n";
-            close(client.getFileFd());
+            close_conection(clients, current_fd, epoll_fd);
+            return (0);
         }
-        client.setBuffer(chunk.c_str(), chunk.size());
-        client.setFileSize(chunk.size());
+        client.setFileSize(bytes);
         client.setFileOffset(0);
-        return (1);
     }
-    ssize_t bytes = read(client.getFileFd(), client.getBuffer(), 4096);
-    if (bytes <=0)
-    {
-        close_conection(clients, current_fd, epoll_fd);
-        return (0);
-    }
-    client.setFileSize(bytes);
-    client.setFileOffset(0);
     return (1);
 }
 
@@ -136,10 +139,15 @@ int sendResponse(std::map<int, Client> &clients, int current_fd, int epoll_fd)
     }
     if (client.getFileOffset() == client.getFileSize())
     {
+        if (client.getFileFd() == -1)
+        {
+            close_conection(clients, current_fd, epoll_fd); //cuando sea keep alive sera reset <---------------------------------------------
+            return (1);
+        }
         if (!prepare_response(clients, client, current_fd, epoll_fd))
             return (0) ;                       
     }
-    ssize_t sent = send(current_fd, client.getBuffer() + client.getFileOffset() ,client.getFileSize() - client.getFileOffset(),0 );
+    ssize_t sent = send(current_fd, client.getBuffer() + client.getFileOffset() ,client.getFileSize() - client.getFileOffset(), 0);
     if (sent <= 0)
     {
         close_conection(clients, current_fd, epoll_fd);

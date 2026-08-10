@@ -65,7 +65,7 @@ void requestPost(Client *client)
     std::string path = client->getRequest().path;
 
     std::string filePath = "./html" + path;
-
+    client->setFileFd(-1);
     if (path.find("..") != std::string::npos)
     {
         std::string body = "Forbidden";
@@ -115,10 +115,42 @@ void requestDelete(Client *client)
 
     std::string filePath = "./html" + path;
 
-    if (std::remove(filePath.c_str()) != 0)
+    std::string body;
+    std::string status;
+    if (filePath.find("..") != std::string::npos)
     {
-       // client->setResponseHeaders(createHeadersLength())
+        body = "Forbidden";
+        status = "403 Forbidden";
     }
+    else
+    {
+        struct stat st;
+        if (stat(filePath.c_str(), &st) != 0)
+        {
+            body = "Not Found";
+            status = "404 Not Found";
+        }
+        else if (!S_ISREG(st.st_mode))
+        {
+            body = "Forbidden";
+            status = "403 Forbidden";
+        }
+        else if (std::remove(filePath.c_str()) != 0)
+        {
+            body = "Could not delete file";
+            status = "500 Internal Server Error";
+        }
+        else
+        {
+            body = "Deleted";
+            status = "200 OK";
+        }
+    }
+    client->setResponseHeaders(createHeadersLength("text/plain",status, body.size()));
+    client->setBuffer(body.c_str(),body.size());
+    client->setFileOffset(0);
+    client->setIsRegularFile(true);
+    client->setFileSize(body.size());
 }
 
 void Procesrequest(Client * client)
