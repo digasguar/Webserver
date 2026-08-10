@@ -36,7 +36,8 @@ int recive_request(std::map<int, Client> &clients, int current_fd, int epoll_fd)
     client.recv_buffer.append(buffer, bytes);
 
     client.parseRequest();
-    client.setRecuestBody("hola que tal?");
+    if (!client.isRequestComplete())
+    	return (1);
 
     Procesrequest(&client);
     epoll_event response_event;
@@ -125,7 +126,7 @@ void prepare_socket(int fd)
 
 int sendResponse(std::map<int, Client> &clients, int current_fd, int epoll_fd)
 {
-    std::cout << "ENTRO EN EPOLLOUT FD: " << current_fd << std::endl;
+    //std::cout << "ENTRO EN EPOLLOUT FD: " << current_fd << std::endl;
     Client& client = clients.at(current_fd);
     std::string headers = client.getResponseHeaders();
     if (client.getHeaderOffset() < headers.size())

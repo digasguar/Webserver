@@ -27,7 +27,7 @@ void requestGet(Client *client)
 
     if (path == "/")
         path = "/index.html";
-    std::string filePath = "/sgoinfre/students/dgasco-g/webserv/html/" + path;
+    std::string filePath = "./html" + path;
     std::string typeFile;
     if (path.find(".html") != std::string::npos)
         typeFile = "text/html";
@@ -64,7 +64,7 @@ void requestPost(Client *client)
 {
     std::string path = client->getRequest().path;
 
-    std::string filePath = "/sgoinfre/students/dgasco-g/webserv/html/" + path;
+    std::string filePath = "./html" + path;
 
     std::ofstream file(filePath.c_str(), std::ios::binary);
     if (!file.is_open())
@@ -79,7 +79,7 @@ void requestDelete(Client *client)
 {
     std::string path = client->getRequest().path;
 
-    std::string filePath = "/sgoinfre/students/dgasco-g/webserv/html/" + path;
+    std::string filePath = "./html" + path;
 
     if (std::remove(filePath.c_str()) != 0)
     {
@@ -89,6 +89,13 @@ void requestDelete(Client *client)
 
 void Procesrequest(Client * client)
 {
+
+    std::cout << "=== REQUEST COMPLETE ===\n"
+          << "type: " << client->getRequest().type << "\n"
+          << "path: " << client->getRequest().path << "\n"
+          << "body: [" << client->getRequest().body << "]\n"
+          << "=========================\n";
+
     if (client->getRequest().type == "GET")
         return (requestGet(client));
     else if (client->getRequest().type == "POST")

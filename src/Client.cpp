@@ -1,5 +1,7 @@
 #include "../includes/Client.hpp"
 
+#define MAX_BODY_SIZE 10000000  // 10MB, como limite de body, esto iria en el archivo de configuracion
+
 Client::Client(int socket): _socket(socket)
 {
     this->_file_fd = -1;
@@ -7,6 +9,7 @@ Client::Client(int socket): _socket(socket)
     this->_fileOffset = 0;
     this->_fileSize = 0;
     this->_isRegularFile = true;
+    this->_parseState = LINE;
 };
 
 int Client::getSocket(){ return (this->_socket); };
@@ -51,22 +54,87 @@ int Client::getFileFd(){return this->_file_fd;}
 
 std::string Client::getResponseHeaders(){return this->_responseHeaders;}
 
+bool Client::isRequestComplete()
+{
+    return (_parseState == DONE);
+}
+
 void Client::parseRequest()
 {
-    size_t pos = recv_buffer.find("\r\n");
-    if (pos == std::string::npos)
-        return;
+    if (_parseState == LINE)
+    {
+        size_t pos = recv_buffer.find("\r\n");
+        if (pos == std::string::npos)
+            return;
 
-    std::string line = recv_buffer.substr(0, pos);
-    recv_buffer.erase(0, pos + 2);
+        std::string line = recv_buffer.substr(0, pos);
+        recv_buffer.erase(0, pos + 2);
 
-    std::istringstream iss(line);
-    std::string type, path, version;
-    iss >> type >> path >> version;
+        std::istringstream iss(line);
+        std::string type, path, version;
+        iss >> type >> path >> version;
 
-    setRequestType(type);
-    setRequestPath(path);
-    setRequestVersion(version);
+        setRequestType(type);
+        setRequestPath(path);
+        setRequestVersion(version);
+
+        _parseState = HEADERS;
+    }
+
+    if (_parseState == HEADERS)
+    {
+        size_t pos;
+        while ((pos = recv_buffer.find("\r\n")) != std::string::npos)
+        {
+            std::string line = recv_buffer.substr(0, pos);
+            recv_buffer.erase(0, pos + 2);
+
+            if (line.empty())
+            {
+                std::map<std::string, std::string>::iterator it =
+                    this->_request.headers.find("Content-Length");
+                if (it == this->_request.headers.end())
+                    _parseState = DONE;
+                else
+                    _parseState = BODY;
+                break;
+            }
+
+            size_t colon = line.find(':');
+            if (colon == std::string::npos)
+                continue;
+
+            std::string key = line.substr(0, colon);
+            std::string value = line.substr(colon + 1);
+            if (!value.empty() && value[0] == ' ')
+                value.erase(0, 1);
+
+            this->_request.headers[key] = value;
+        }
+        if (_parseState == HEADERS)
+            return;
+    }
+
+    if (_parseState == BODY)
+    {
+        size_t expectedLen = std::atol(this->_request.headers["Content-Length"].c_str());
+
+		if (expectedLen > MAX_BODY_SIZE)
+		{
+			_parseState = DONE;   // para para no explotar por un tamaño demasiado grande
+			// pendiente: tiene que triggerear un 413
+			return;
+		}
+
+        if (recv_buffer.size() < expectedLen)
+            return;
+
+        std::string body = recv_buffer.substr(0, expectedLen);
+        recv_buffer.erase(0, expectedLen);
+        setRecuestBody(body);
+
+        _parseState = DONE;
+    }
 }
 
 void Client::resetRequest()

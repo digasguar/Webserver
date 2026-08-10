@@ -10,6 +10,14 @@ enum ClientState
     FINISHED
 };
 
+enum ParseState
+{
+    LINE,
+    HEADERS,
+    BODY,
+    DONE
+};
+
 class Client
 {
 private:
@@ -18,6 +26,8 @@ private:
     HttpRequesr _request;//la peticion parseada de cliente
 
     ClientState _state; //estado del cliente
+    
+    ParseState _parseState;
 
     std::string _responseHeaders; //los headers de la respuesta
 
@@ -61,6 +71,8 @@ public:
 
     void resetRequest();
     void parseRequest();
+    bool isRequestComplete();
+    
     Client(int socket);
     ~Client();
 };
