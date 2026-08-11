@@ -43,6 +43,8 @@ void Client::setBuffer(const char *buffer, size_t size){std::copy(buffer, buffer
 
 void Client::setKeepAlive(const bool k){this->_keep_alive = k;}
 
+void Client::setEpollEvent(const struct epoll_event &ep){this->_ep = ep;}
+
 size_t Client::getHeaderOffset(){return this->_headerOffset;}
 
 char * Client::getBuffer(){return(this->_buffer);}
@@ -156,4 +158,6 @@ void Client::resetRequest()
     this->_request.version.clear();
     this->_responseHeaders.clear();
     this->_keep_alive = true;
+    this->_parseState = LINE;
+    this->_ep.events = EPOLLIN;
 }

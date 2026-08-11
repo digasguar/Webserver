@@ -42,16 +42,9 @@ void reciveRequest(std::map<int, Client> &clients, int current_fd, int epoll_fd)
     epoll_event response_event;
     response_event.data.fd = current_fd;
     response_event.events = EPOLLOUT;
+    client.setEpollEvent(response_event);
     epoll_ctl(epoll_fd, EPOLL_CTL_MOD, current_fd, &response_event);
     return ;
-}
-
-void close_conection(std::map<int, Client> &clients, int current_fd, int epoll_fd)
-{
-    clients.erase(current_fd);
-    close(current_fd);
-    epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL);
-    std::cout << "FIN\n";
 }
 
 int prepare_response(std::map<int, Client> &clients, Client &client, int current_fd, int epoll_fd)
@@ -119,7 +112,7 @@ void prepare_socket(int fd)
     }
 
     // (que fd escucha, numero de peticiones antes que se bloquee)
-    if (listen(fd, 42) < 0) // escucha xd
+    if (listen(fd, 42) < 0)
     {
         std::cout << "FAILURE LISTEN" << std::endl;
         exit(EXIT_FAILURE);
@@ -140,7 +133,7 @@ void sendResponse(std::map<int, Client> &clients, int current_fd, int epoll_fd)
     {
         if (client.getFileFd() == -1)
         {
-            close_conection(clients, current_fd, epoll_fd); //cuando sea keep alive sera reset <---------------------------------------------
+            finishResponse(clients, current_fd, epoll_fd);
             return ;
         }
         if (!prepare_response(clients, client, current_fd, epoll_fd))
@@ -149,7 +142,7 @@ void sendResponse(std::map<int, Client> &clients, int current_fd, int epoll_fd)
     ssize_t sent = send(current_fd, client.getBuffer() + client.getFileOffset() ,client.getFileSize() - client.getFileOffset(), 0);
     if (sent <= 0)
     {
-        close_conection(clients, current_fd, epoll_fd);
+        finishResponse(clients, current_fd, epoll_fd);
         close(client.getFileFd());
         return ;
     }
@@ -197,10 +190,10 @@ int main()
     {
        int n = epoll_wait(epoll_fd, events, 42, -1);
        if (n == -1)
-       {
+        {
             perror("epoll wait");
             exit(EXIT_FAILURE);
-       }
+        }
         void (*functions[])(std::map<int, Client> &, int, int) =
         {
             dummy,
@@ -209,11 +202,11 @@ int main()
             sendResponse
         };
        for (int i = 0; i < n; i++)
-       {
+        {
             int current_fd = events[i].data.fd;
             size_t index = calculate_index(current_fd, fd, events[i]);
             functions[index](clients, current_fd, epoll_fd);
-       }
+        }
     }
     close(fd);
 }

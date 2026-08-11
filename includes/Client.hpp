@@ -45,6 +45,8 @@ private:
 
     bool _keep_alive; // mantener conexiones aviertas
 
+    struct epoll_event _ep;
+
 public:
     std::string recv_buffer;
 
@@ -63,6 +65,7 @@ public:
     void setFileSize(const size_t size);
     void setBuffer(const char *buffer, size_t size);
     void setKeepAlive(const bool k);
+    void setEpollEvent(const struct epoll_event &ep);
 
     size_t getHeaderOffset();
     char *getBuffer();
@@ -72,6 +75,7 @@ public:
     int getFileFd();
     std::string getResponseHeaders();
     bool getKeepAlive();
+    struct epoll_event getEpollEvent();
 
     void resetRequest();
     void parseRequest();
