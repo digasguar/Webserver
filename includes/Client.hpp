@@ -43,6 +43,8 @@ private:
 
     int _file_fd; //que archivo es
 
+    bool _keep_alive; // mantener conexiones aviertas
+
 public:
     std::string recv_buffer;
 
@@ -60,6 +62,7 @@ public:
     void setIsRegularFile(const bool regular);
     void setFileSize(const size_t size);
     void setBuffer(const char *buffer, size_t size);
+    void setKeepAlive(const bool k);
 
     size_t getHeaderOffset();
     char *getBuffer();
@@ -68,6 +71,7 @@ public:
     off_t getFileSize();
     int getFileFd();
     std::string getResponseHeaders();
+    bool getKeepAlive();
 
     void resetRequest();
     void parseRequest();

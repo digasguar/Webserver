@@ -1,24 +1,37 @@
 #include "../includes/Librari.hpp"
 #include "../includes/Client.hpp"
 
-std::string createHeadersLength(const std::string type, const std::string status, size_t length)
+std::string createHeadersLength(const std::string type, const std::string status, size_t length, bool keep_alive)
 {
     std::stringstream ss;
     ss << length;
+
+    if (!keep_alive)
+        return ("HTTP/1.1 " + status + "\r\n"
+            "Content-Type: " + type + "\r\n"
+            "Content-Length: " + ss.str() + "\r\n"
+            "Connection: close\r\n"
+            "\r\n");
     return ("HTTP/1.1 " + status + "\r\n"
-        "Content-Type: " + type + "\r\n"
-        "Content-Length: " + ss.str() + "\r\n"
-        "Connection: close\r\n"
-        "\r\n");
+            "Content-Type: " + type + "\r\n"
+            "Content-Length: " + ss.str() + "\r\n"
+            "Connection: keep-alive\r\n"
+            "\r\n");
 }
 
-std::string createChunkedHeader(const std::string type, const std::string status)
+std::string createChunkedHeader(const std::string type, const std::string status, bool keep_alive)
 {
+    if (!keep_alive)
+        return ("HTTP/1.1 " + status + "\r\n"
+            "Content-Type: " + type + "\r\n"
+            "Transfer-Encoding: chunked" + "\r\n"
+            "Connection: close\r\n"
+            "\r\n");
     return ("HTTP/1.1 " + status + "\r\n"
-        "Content-Type: " + type + "\r\n"
-        "Transfer-Encoding: chunked" + "\r\n"
-        "Connection: close\r\n"
-        "\r\n");
+            "Content-Type: " + type + "\r\n"
+            "Transfer-Encoding: chunked" + "\r\n"
+            "Connection: keep-alive\r\n"
+            "\r\n");
 }
 
 void requestGet(Client *client)
@@ -42,11 +55,11 @@ void requestGet(Client *client)
         int errorfd = open(path.c_str(), O_RDONLY); // no se si con el archivo de configuracion podriamos hacer que la paguina de conf siempre se pueda abrir
         stat(path.c_str(), &st);// esto tambien puede fallar, deveria prevenirlo pero me da pereza
         if (S_ISREG(st.st_mode) != 0)
-            client->setResponseHeaders(createHeadersLength(typeFile, "404", st.st_size));
+            client->setResponseHeaders(createHeadersLength(typeFile, "404", st.st_size, client->getKeepAlive()));
         else
         {
             client->setIsRegularFile(false);
-            client->setResponseHeaders(createChunkedHeader(typeFile, "404"));
+            client->setResponseHeaders(createChunkedHeader(typeFile, "404", client->getKeepAlive()));
         }
         client->setFileFd(errorfd);
         close(file);
@@ -54,9 +67,9 @@ void requestGet(Client *client)
     }
     stat(filePath.c_str(), &st);
     if (S_ISREG(st.st_mode) != 0)
-        client->setResponseHeaders(createHeadersLength(typeFile, "200", st.st_size));
+        client->setResponseHeaders(createHeadersLength(typeFile, "200", st.st_size, client->getKeepAlive()));
     else
-        client->setResponseHeaders(createChunkedHeader(typeFile, "200"));
+        client->setResponseHeaders(createChunkedHeader(typeFile, "200", client->getKeepAlive()));
     client->setFileFd(file);
 }
 
@@ -66,10 +79,10 @@ void requestPost(Client *client)
 
     std::string filePath = "./html" + path;
     client->setFileFd(-1);
-    if (path.find("..") != std::string::npos)
+    if (path.find("../") != std::string::npos)
     {
         std::string body = "Forbidden";
-        client->setResponseHeaders(createHeadersLength("text/plain", "403 Forbidden", body.size()));
+        client->setResponseHeaders(createHeadersLength("text/plain", "403 Forbidden", body.size(), client->getKeepAlive()));
         client->setBuffer(body.c_str(), body.size());
         client->setFileSize(body.size());
         client->setFileOffset(0);
@@ -102,7 +115,7 @@ void requestPost(Client *client)
             status = "201 Created";
         }
     }
-    client->setResponseHeaders(createHeadersLength("text/plain",status, body.size()));
+    client->setResponseHeaders(createHeadersLength("text/plain",status, body.size(), client->getKeepAlive()));
     client->setBuffer(body.c_str(),body.size());
     client->setFileOffset(0);
     client->setIsRegularFile(true);
@@ -112,12 +125,12 @@ void requestPost(Client *client)
 void requestDelete(Client *client)
 {
     std::string path = client->getRequest().path;
-
     std::string filePath = "./html" + path;
-
     std::string body;
     std::string status;
-    if (filePath.find("..") != std::string::npos)
+
+    client->setFileFd(-1);
+    if (filePath.find("../") != std::string::npos)
     {
         body = "Forbidden";
         status = "403 Forbidden";
@@ -146,7 +159,7 @@ void requestDelete(Client *client)
             status = "200 OK";
         }
     }
-    client->setResponseHeaders(createHeadersLength("text/plain",status, body.size()));
+    client->setResponseHeaders(createHeadersLength("text/plain",status, body.size(), client->getKeepAlive()));
     client->setBuffer(body.c_str(),body.size());
     client->setFileOffset(0);
     client->setIsRegularFile(true);

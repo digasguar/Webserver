@@ -10,6 +10,7 @@ Client::Client(int socket): _socket(socket)
     this->_fileSize = 0;
     this->_isRegularFile = true;
     this->_parseState = LINE;
+    this->_keep_alive = true; 
 };
 
 int Client::getSocket(){ return (this->_socket); };
@@ -40,6 +41,8 @@ void Client::setFileSize(const size_t size){this->_fileSize = size;}
 
 void Client::setBuffer(const char *buffer, size_t size){std::copy(buffer, buffer + size, this->_buffer);}
 
+void Client::setKeepAlive(const bool k){this->_keep_alive = k;}
+
 size_t Client::getHeaderOffset(){return this->_headerOffset;}
 
 char * Client::getBuffer(){return(this->_buffer);}
@@ -53,6 +56,8 @@ off_t Client::getFileSize(){return this->_fileSize;}
 int Client::getFileFd(){return this->_file_fd;}
 
 std::string Client::getResponseHeaders(){return this->_responseHeaders;}
+
+bool Client::getKeepAlive(){return (this->_keep_alive);}
 
 bool Client::isRequestComplete()
 {
@@ -150,4 +155,5 @@ void Client::resetRequest()
     this->_request.type.clear();
     this->_request.version.clear();
     this->_responseHeaders.clear();
+    this->_keep_alive = true;
 }

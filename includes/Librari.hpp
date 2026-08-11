@@ -19,5 +19,6 @@ class Client;
 
 
 void Procesrequest(Client * client);
+int calculate_index(int current_fd, int fd, epoll_event ep);
 
 #endif
