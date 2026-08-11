@@ -2,13 +2,13 @@
 #include "../includes/Librari.hpp"
 #include "../includes/Client.hpp"
 
-int createClient(std::map<int, Client> &clients, int fd, int epoll_fd)
+void createClient(std::map<int, Client> &clients, int fd, int epoll_fd)
 {
     sockaddr_in client;
     socklen_t len = sizeof(client);
     int fd_client = accept(fd,(struct sockaddr*)&client, &len);
     if (fd_client < 0)
-        return (0);
+        return ;
     fcntl(fd_client, F_SETFL, O_NONBLOCK);
     clients.insert(std::make_pair(fd_client, Client(fd_client)));
     epoll_event client_event;
@@ -16,10 +16,10 @@ int createClient(std::map<int, Client> &clients, int fd, int epoll_fd)
     client_event.events = EPOLLIN;
 
     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd_client, &client_event);
-    return (1);
+    return ;
 }
 
-int recive_request(std::map<int, Client> &clients, int current_fd, int epoll_fd)
+void reciveRequest(std::map<int, Client> &clients, int current_fd, int epoll_fd)
 {
     char buffer[4094];
 
@@ -29,7 +29,7 @@ int recive_request(std::map<int, Client> &clients, int current_fd, int epoll_fd)
         clients.erase(current_fd);
         close(current_fd);
         epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL);
-        return (0);
+        return ;
     }
     Client& client = clients.at(current_fd);
 
@@ -37,58 +37,53 @@ int recive_request(std::map<int, Client> &clients, int current_fd, int epoll_fd)
 
     client.parseRequest();
     if (!client.isRequestComplete())
-    	return (1);
-
+    	return ;
     Procesrequest(&client);
     epoll_event response_event;
     response_event.data.fd = current_fd;
     response_event.events = EPOLLOUT;
+    client.setEpollEvent(response_event);
     epoll_ctl(epoll_fd, EPOLL_CTL_MOD, current_fd, &response_event);
-    return (1);
-}
-
-void close_conection(std::map<int, Client> &clients, int current_fd, int epoll_fd)
-{
-    clients.erase(current_fd);
-    close(current_fd);
-    epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL);
-    std::cout << "FIN\n";
+    return ;
 }
 
 int prepare_response(std::map<int, Client> &clients, Client &client, int current_fd, int epoll_fd)
 {
-    if (!client.getIsRegularFile())
+    if (client.getFileFd() != -1)
     {
-        std::string buffer;
-        buffer.resize(4080);
-        ssize_t bytes = read(client.getFileFd(), &buffer[0], buffer.size());
-        std::string chunk;
-        if (bytes > 0)
+        if (!client.getIsRegularFile())
         {
-            std::stringstream ss;
-            ss << std::hex << bytes;
-            chunk = ss.str() + "\r\n";
-            chunk.append(buffer.data(), bytes);
-            chunk.append("\r\n");
+            std::string buffer;
+            buffer.resize(4080);
+            ssize_t bytes = read(client.getFileFd(), &buffer[0], buffer.size());
+            std::string chunk;
+            if (bytes > 0)
+            {
+                std::stringstream ss;
+                ss << std::hex << bytes;
+                chunk = ss.str() + "\r\n";
+                chunk.append(buffer.data(), bytes);
+                chunk.append("\r\n");
+            }
+            else
+            {
+                chunk = "0\r\n\r\n";
+                close(client.getFileFd());
+            }
+            client.setBuffer(chunk.c_str(), chunk.size());
+            client.setFileSize(chunk.size());
+            client.setFileOffset(0);
+            return (1);
         }
-        else
+        ssize_t bytes = read(client.getFileFd(), client.getBuffer(), 4096);
+        if (bytes <=0)
         {
-            chunk = "0\r\n\r\n";
-            close(client.getFileFd());
+            close_conection(clients, current_fd, epoll_fd);
+            return (0);
         }
-        client.setBuffer(chunk.c_str(), chunk.size());
-        client.setFileSize(chunk.size());
+        client.setFileSize(bytes);
         client.setFileOffset(0);
-        return (1);
     }
-    ssize_t bytes = read(client.getFileFd(), client.getBuffer(), 4096);
-    if (bytes <=0)
-    {
-        close_conection(clients, current_fd, epoll_fd);
-        return (0);
-    }
-    client.setFileSize(bytes);
-    client.setFileOffset(0);
     return (1);
 }
 
@@ -117,14 +112,14 @@ void prepare_socket(int fd)
     }
 
     // (que fd escucha, numero de peticiones antes que se bloquee)
-    if (listen(fd, 42) < 0) // escucha xd
+    if (listen(fd, 42) < 0)
     {
         std::cout << "FAILURE LISTEN" << std::endl;
         exit(EXIT_FAILURE);
     }
 }
 
-int sendResponse(std::map<int, Client> &clients, int current_fd, int epoll_fd)
+void sendResponse(std::map<int, Client> &clients, int current_fd, int epoll_fd)
 {
     //std::cout << "ENTRO EN EPOLLOUT FD: " << current_fd << std::endl;
     Client& client = clients.at(current_fd);
@@ -132,24 +127,36 @@ int sendResponse(std::map<int, Client> &clients, int current_fd, int epoll_fd)
     if (client.getHeaderOffset() < headers.size())
     {
         sendHeaders(current_fd,headers,client,clients, epoll_fd);
-        return (0);
+        return ;
     }
     if (client.getFileOffset() == client.getFileSize())
     {
+        if (client.getFileFd() == -1)
+        {
+            finishResponse(clients, current_fd, epoll_fd);
+            return ;
+        }
         if (!prepare_response(clients, client, current_fd, epoll_fd))
-            return (0) ;                       
+            return ;                       
     }
-    ssize_t sent = send(current_fd, client.getBuffer() + client.getFileOffset() ,client.getFileSize() - client.getFileOffset(),0 );
+    ssize_t sent = send(current_fd, client.getBuffer() + client.getFileOffset() ,client.getFileSize() - client.getFileOffset(), 0);
     if (sent <= 0)
     {
-        close_conection(clients, current_fd, epoll_fd);
+        finishResponse(clients, current_fd, epoll_fd);
         close(client.getFileFd());
-        return (0);
+        return ;
     }
     client.setFileOffset(client.getFileOffset() + sent);
     if (client.getFileOffset() < client.getFileSize())
-        return (0);
-    return (1);
+        return ;
+    return ;
+}
+
+void dummy(std::map<int, Client> &clients, int fd, int epoll_fd)
+{
+    (void)clients;
+    (void)fd;
+    (void)epoll_fd;
 }
 
 int main()
@@ -183,33 +190,23 @@ int main()
     {
        int n = epoll_wait(epoll_fd, events, 42, -1);
        if (n == -1)
-       {
+        {
             perror("epoll wait");
             exit(EXIT_FAILURE);
-       }
+        }
+        void (*functions[])(std::map<int, Client> &, int, int) =
+        {
+            dummy,
+            createClient,
+            reciveRequest,
+            sendResponse
+        };
        for (int i = 0; i < n; i++)
-       {
+        {
             int current_fd = events[i].data.fd;
-            if (current_fd == fd)
-            {
-                if(!createClient(clients, fd, epoll_fd))
-                    continue ;
-                std::cout << "nuevo cliente creado" << std::endl;
-            }
-            else
-            {
-                if (events[i].events & EPOLLIN)
-                {
-                    if (!recive_request(clients, current_fd, epoll_fd))
-                        continue ;       
-                }
-                else if(events[i].events & EPOLLOUT)
-                {
-                    if (!sendResponse(clients, current_fd, epoll_fd))
-                        continue ;
-                }
-            }
-       }
+            size_t index = calculate_index(current_fd, fd, events[i]);
+            functions[index](clients, current_fd, epoll_fd);
+        }
     }
     close(fd);
 }
