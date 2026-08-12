@@ -1,46 +1,184 @@
 #include "../includes/Librari.hpp"
+#include "../includes/Client.hpp"
 
-std::string createResponse(const std::string body, const std::string type, const std::string status);
-
-std::string Procesrequest(Client * client)
+std::string createHeadersLength(const std::string type, const std::string status, size_t length, bool keep_alive)
 {
-    if (client->getRequest().type == "GET")
-    {
-        std::string path = client->getRequest().path;
+    std::stringstream ss;
+    ss << length;
 
-        if (path == "/")
-            path = "/index.html";
-        std::string filePath = "/home/asgalean/COMMON CORE/Entregas/Circle5/WEBSERBER/Webserver/html" + path;
-
-        std::ifstream file(filePath.c_str(), std::ios::binary);
-
-        if (!file.is_open())
-        {
-            std::string errorPath = "/home/asgalean/COMMON CORE/Entregas/Circle5/WEBSERBER/Webserver/html/404.jpg";
-            std::ifstream errorFile(errorPath.c_str(), std::ios::binary);
-            std::stringstream buffer;
-            buffer << errorFile.rdbuf();
-
-            std::string body = buffer.str();
-            return (createResponse(body, "image/jpeg", "404 Not Found"));
-        }
-
-        std::stringstream buffer;
-        buffer << file.rdbuf();
-
-        std::string body = buffer.str();
-        return (createResponse(body, "text/html", "200 OK"));
-
-    }
-    return (createResponse("418 Soy una tetera","text/plain", "418 Soy una tetera"));
+    if (!keep_alive)
+        return ("HTTP/1.1 " + status + "\r\n"
+            "Content-Type: " + type + "\r\n"
+            "Content-Length: " + ss.str() + "\r\n"
+            "Connection: close\r\n"
+            "\r\n");
+    return ("HTTP/1.1 " + status + "\r\n"
+            "Content-Type: " + type + "\r\n"
+            "Content-Length: " + ss.str() + "\r\n"
+            "Connection: keep-alive\r\n"
+            "\r\n");
 }
 
-std::string createResponse(const std::string body, const std::string type, const std::string status)
+std::string createChunkedHeader(const std::string type, const std::string status, bool keep_alive)
 {
-    return ("HHTTP/1.1 " + status + "\r\n"
-        "Content-Type: " + type + "\r\n"
-        "Content-Length: " + std::to_string(body.size()) + "\r\n"
-        "Conection: close\r\n"
-        "\r\n" + 
-        body); 
+    if (!keep_alive)
+        return ("HTTP/1.1 " + status + "\r\n"
+            "Content-Type: " + type + "\r\n"
+            "Transfer-Encoding: chunked" + "\r\n"
+            "Connection: close\r\n"
+            "\r\n");
+    return ("HTTP/1.1 " + status + "\r\n"
+            "Content-Type: " + type + "\r\n"
+            "Transfer-Encoding: chunked" + "\r\n"
+            "Connection: keep-alive\r\n"
+            "\r\n");
+}
+
+void requestGet(Client *client)
+{
+    std::string path = client->getRequest().path;
+
+    if (path == "/")
+        path = "/index.html";
+    std::string filePath = "./html" + path;
+    std::string typeFile;
+    if (path.find(".html") != std::string::npos)
+        typeFile = "text/html";
+    else if (path.find(".jpg") != std::string::npos)
+        typeFile = "image/jpeg";
+    else 
+        typeFile = "text/plain";
+    int file = open(filePath.c_str(), O_RDONLY);
+    struct stat st;
+    if (file < 0)
+    { 
+        int errorfd = open(path.c_str(), O_RDONLY); // no se si con el archivo de configuracion podriamos hacer que la paguina de conf siempre se pueda abrir
+        stat(path.c_str(), &st);// esto tambien puede fallar, deveria prevenirlo pero me da pereza
+        if (S_ISREG(st.st_mode) != 0)
+            client->setResponseHeaders(createHeadersLength(typeFile, "404", st.st_size, client->getKeepAlive()));
+        else
+        {
+            client->setIsRegularFile(false);
+            client->setResponseHeaders(createChunkedHeader(typeFile, "404", client->getKeepAlive()));
+        }
+        client->setFileFd(errorfd);
+        close(file);
+        return ;
+    }
+    stat(filePath.c_str(), &st);
+    if (S_ISREG(st.st_mode) != 0)
+        client->setResponseHeaders(createHeadersLength(typeFile, "200", st.st_size, client->getKeepAlive()));
+    else
+        client->setResponseHeaders(createChunkedHeader(typeFile, "200", client->getKeepAlive()));
+    client->setFileFd(file);
+}
+
+void requestPost(Client *client)
+{
+    std::string path = client->getRequest().path;
+
+    std::string filePath = "./html" + path;
+    client->setFileFd(-1);
+    if (path.find("../") != std::string::npos)
+    {
+        std::string body = "Forbidden";
+        client->setResponseHeaders(createHeadersLength("text/plain", "403 Forbidden", body.size(), client->getKeepAlive()));
+        client->setBuffer(body.c_str(), body.size());
+        client->setFileSize(body.size());
+        client->setFileOffset(0);
+        client->setIsRegularFile(true);
+        return ;
+    }
+    struct stat st;
+    bool exist = (stat(filePath.c_str(),&st) == 0);
+    std::ofstream file(filePath.c_str(), std::ios::binary | std::ios::trunc);
+    std::string body;
+    std::string status;
+
+    if (!file.is_open())
+    {
+        body = "Could not write file";
+        status = "500 Internal Server Error";
+    }
+    else
+    {
+        file << client->getRequest().body;
+        file.close();
+        if (exist)
+        {
+            body = "Updated";
+            status = "200 OK";
+        }
+        else
+        {
+            body = "Created";
+            status = "201 Created";
+        }
+    }
+    client->setResponseHeaders(createHeadersLength("text/plain",status, body.size(), client->getKeepAlive()));
+    client->setBuffer(body.c_str(),body.size());
+    client->setFileOffset(0);
+    client->setIsRegularFile(true);
+    client->setFileSize(body.size());
+}
+
+void requestDelete(Client *client)
+{
+    std::string path = client->getRequest().path;
+    std::string filePath = "./html" + path;
+    std::string body;
+    std::string status;
+
+    client->setFileFd(-1);
+    if (filePath.find("../") != std::string::npos)
+    {
+        body = "Forbidden";
+        status = "403 Forbidden";
+    }
+    else
+    {
+        struct stat st;
+        if (stat(filePath.c_str(), &st) != 0)
+        {
+            body = "Not Found";
+            status = "404 Not Found";
+        }
+        else if (!S_ISREG(st.st_mode))
+        {
+            body = "Forbidden";
+            status = "403 Forbidden";
+        }
+        else if (std::remove(filePath.c_str()) != 0)
+        {
+            body = "Could not delete file";
+            status = "500 Internal Server Error";
+        }
+        else
+        {
+            body = "Deleted";
+            status = "200 OK";
+        }
+    }
+    client->setResponseHeaders(createHeadersLength("text/plain",status, body.size(), client->getKeepAlive()));
+    client->setBuffer(body.c_str(),body.size());
+    client->setFileOffset(0);
+    client->setIsRegularFile(true);
+    client->setFileSize(body.size());
+}
+
+void Procesrequest(Client * client)
+{
+
+    std::cout << "=== REQUEST COMPLETE ===\n"
+          << "type: " << client->getRequest().type << "\n"
+          << "path: " << client->getRequest().path << "\n"
+          << "body: [" << client->getRequest().body << "]\n"
+          << "=========================\n";
+
+    if (client->getRequest().type == "GET")
+        return (requestGet(client));
+    else if (client->getRequest().type == "POST")
+        return (requestPost(client));
+    else if (client->getRequest().type == "DELETE")
+        return (requestDelete(client));
 }
