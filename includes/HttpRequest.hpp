@@ -10,7 +10,7 @@ struct HttpRequesr
 	std::string path; // que pide el cliente
 	std::string version; // que vrsiond de http es
 	std::string body;
-	std::map<std::string, std::string> headers;
+	std::map<std::string, std::string> headers; //IMPORTANTE: las keys estan en minusculas, porque hay veces que la request puede venir en minusculas, y para no hacer un cristo con los ifs
 };
 
 

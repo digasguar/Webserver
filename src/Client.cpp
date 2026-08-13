@@ -1,6 +1,15 @@
 #include "../includes/Client.hpp"
+#include <cctype>
 
 #define MAX_BODY_SIZE 10000000  // 10MB, como limite de body, esto iria en el archivo de configuracion
+
+static std::string toLower(const std::string &s)
+{
+    std::string result = s;
+    for (size_t i = 0; i < result.size(); ++i)
+        result[i] = std::tolower(static_cast<unsigned char>(result[i]));
+    return result;
+}
 
 Client::Client(int socket): _socket(socket)
 {
@@ -97,15 +106,24 @@ void Client::parseRequest()
             recv_buffer.erase(0, pos + 2);
 
             if (line.empty())
-            {
-                std::map<std::string, std::string>::iterator it =
-                    this->_request.headers.find("Content-Length");
-                if (it == this->_request.headers.end())
-                    _parseState = DONE;
-                else
-                    _parseState = BODY;
-                break;
-            }
+			{
+				bool isHttp11 = (this->_request.version == "HTTP/1.1");
+				std::map<std::string, std::string>::iterator connIt =
+					this->_request.headers.find("connection");
+
+				if (connIt == this->_request.headers.end())
+					setKeepAlive(isHttp11);
+				else
+					setKeepAlive(toLower(connIt->second) == "keep-alive");
+
+				std::map<std::string, std::string>::iterator it =
+					this->_request.headers.find("content-length");
+				if (it == this->_request.headers.end())
+					_parseState = DONE;
+				else
+					_parseState = BODY;
+				break;
+			}
 
             size_t colon = line.find(':');
             if (colon == std::string::npos)
@@ -116,7 +134,7 @@ void Client::parseRequest()
             if (!value.empty() && value[0] == ' ')
                 value.erase(0, 1);
 
-            this->_request.headers[key] = value;
+            this->_request.headers[toLower(key)] = value;
         }
         if (_parseState == HEADERS)
             return;
@@ -124,7 +142,7 @@ void Client::parseRequest()
 
     if (_parseState == BODY)
     {
-        size_t expectedLen = std::atol(this->_request.headers["Content-Length"].c_str());
+        size_t expectedLen = std::atol(this->_request.headers["content-length"].c_str());
 
 		if (expectedLen > MAX_BODY_SIZE)
 		{
@@ -156,6 +174,7 @@ void Client::resetRequest()
     this->_request.path.clear();
     this->_request.type.clear();
     this->_request.version.clear();
+    this->_request.headers.clear();
     this->_responseHeaders.clear();
     this->_keep_alive = true;
     this->_parseState = LINE;
