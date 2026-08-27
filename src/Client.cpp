@@ -20,6 +20,7 @@ Client::Client(int socket): _socket(socket)
     this->_isRegularFile = true;
     this->_parseState = LINE;
     this->_keep_alive = true; 
+    this->_parseError = 0;
 };
 
 int Client::getSocket(){ return (this->_socket); };
@@ -75,6 +76,10 @@ bool Client::isRequestComplete()
     return (_parseState == DONE);
 }
 
+void Client::setParseError(int code) { this->_parseError = code; }
+
+int  Client::getParseError() { return this->_parseError; }
+
 void Client::parseRequest()
 {
     if (_parseState == LINE)
@@ -116,12 +121,20 @@ void Client::parseRequest()
 				else
 					setKeepAlive(toLower(connIt->second) == "keep-alive");
 
-				std::map<std::string, std::string>::iterator it =
-					this->_request.headers.find("content-length");
-				if (it == this->_request.headers.end())
-					_parseState = DONE;
-				else
+				bool hasContentLength = this->_request.headers.count("content-length") > 0;
+				bool hasChunked = this->_request.headers.count("transfer-encoding") > 0;
+
+				if (hasContentLength)
 					_parseState = BODY;
+				else if (hasChunked)
+					_parseState = BODY_CHUNKED;
+				else if (this->_request.type == "POST")
+				{
+					setParseError(411);
+					_parseState = DONE;
+				}
+				else
+					_parseState = DONE;
 				break;
 			}
 
@@ -146,8 +159,8 @@ void Client::parseRequest()
 
 		if (expectedLen > MAX_BODY_SIZE)
 		{
-			_parseState = DONE;   // para para no explotar por un tamaño demasiado grande
-			// pendiente: tiene que triggerear un 413
+			setParseError(413);
+			_parseState = DONE;
 			return;
 		}
 
@@ -160,6 +173,38 @@ void Client::parseRequest()
 
         _parseState = DONE;
     }
+    
+    if (_parseState == BODY_CHUNKED)
+{
+    while (true)
+    {
+        size_t pos = recv_buffer.find("\r\n");
+        if (pos == std::string::npos)
+            return;
+
+        std::string sizeLine = recv_buffer.substr(0, pos);
+        size_t chunkSize = std::strtoul(sizeLine.c_str(), NULL, 16);
+
+        if (chunkSize == 0)
+        {
+            recv_buffer.erase(0, pos + 2);
+            if (recv_buffer.size() < 2)
+                return;
+            recv_buffer.erase(0, 2);
+
+            setRecuestBody(_chunkedBody);
+            _parseState = DONE;
+            break;
+        }
+
+        if (recv_buffer.size() < pos + 2 + chunkSize + 2)
+            return;
+
+        std::string chunkData = recv_buffer.substr(pos + 2, chunkSize);
+        _chunkedBody += chunkData;
+        recv_buffer.erase(0, pos + 2 + chunkSize + 2);
+    }
+}
 }
 
 void Client::resetRequest()
@@ -179,4 +224,6 @@ void Client::resetRequest()
     this->_keep_alive = true;
     this->_parseState = LINE;
     this->_ep.events = EPOLLIN;
+    this->_chunkedBody.clear();
+    this->_parseError = 0;
 }

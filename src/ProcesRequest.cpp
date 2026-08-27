@@ -168,12 +168,41 @@ void requestDelete(Client *client)
 
 void Procesrequest(Client * client)
 {
+	if (client->getParseError() != 0)
+    {
+        std::string status, body;
 
+        if (client->getParseError() == 411)
+        {
+            status = "411 Length Required";
+            body = "Length Required";
+        }
+        else if (client->getParseError() == 413)
+        {
+            status = "413 Payload Too Large";
+            body = "Payload Too Large";
+        }
+
+        client->setResponseHeaders(createHeadersLength("text/plain", status, body.size(), client->getKeepAlive()));
+        client->setBuffer(body.c_str(), body.size());
+        client->setFileOffset(0);
+        client->setIsRegularFile(true);
+        client->setFileSize(body.size());
+        return;
+    }
+    
+    /////////////////////////////////////////////////////////////////////////////////
+    /////////////////////////////////////////////////////////////////////////////////
+    //	SE PUEDE BORRAR E N EL FUTURO
+    
     std::cout << "=== REQUEST COMPLETE ===\n"
           << "type: " << client->getRequest().type << "\n"
           << "path: " << client->getRequest().path << "\n"
           << "body: [" << client->getRequest().body << "]\n"
           << "=========================\n";
+
+	////////////////////////////////////////////////////////////////////////////////
+	////////////////////////////////////////////////////////////////////////////////
 
     if (client->getRequest().type == "GET")
         return (requestGet(client));
