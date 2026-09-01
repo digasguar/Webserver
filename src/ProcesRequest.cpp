@@ -1,6 +1,10 @@
 #include "../includes/Librari.hpp"
 #include "../includes/Client.hpp"
 
+#include <dirent.h>
+
+#define AUTOINDEX_ENABLED true  // pendiente: vendra del archivo de configuracion
+
 std::string createHeadersLength(const std::string type, const std::string status, size_t length, bool keep_alive)
 {
     std::stringstream ss;
@@ -34,6 +38,54 @@ std::string createChunkedHeader(const std::string type, const std::string status
             "\r\n");
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// creamos un index.html que iría en el directorio objetivo, pero las tripas las hacemos un string a secas,
+// y en lugar de cagarlo en el directorio, lo guardamos en un tempfile, que luego se borrará, ara que no quede rastro
+
+std::string generateAutoindexHTML(const std::string &dirFsPath, const std::string &urlPath)
+{
+    std::stringstream html;
+    html << "<html><head><title>Index of " << urlPath << "</title></head><body>";
+    html << "<h1>Index of " << urlPath << "</h1><ul>";
+
+    DIR *dir = opendir(dirFsPath.c_str());
+    if (dir)
+    {
+        struct dirent *entry;
+        while ((entry = readdir(dir)) != NULL)
+        {
+            std::string name = entry->d_name;
+            if (name == ".")
+                continue;
+            html << "<li><a href=\"" << name << "\">" << name << "</a></li>";
+        }
+        closedir(dir);
+    }
+    html << "</ul></body></html>";
+    return (html.str());
+}
+
+int writeAutoindexToTempFile(const std::string &html)
+{
+    char tmpPath[] = "/tmp/webserv_autoindex_XXXXXX";
+    int fd = mkstemp(tmpPath);
+    if (fd < 0)
+        return (-1);
+
+    ssize_t written = write(fd, html.c_str(), html.size());
+	if (written < 0 || static_cast<size_t>(written) != html.size())
+	{
+		unlink(tmpPath);
+		close(fd);
+		return (-1);
+	}
+    unlink(tmpPath);
+    lseek(fd, 0, SEEK_SET);
+    return (fd);
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////
+
 void requestGet(Client *client)
 {
     std::string path = client->getRequest().path;
@@ -66,6 +118,45 @@ void requestGet(Client *client)
         return ;
     }
     stat(filePath.c_str(), &st);
+    ////////////////////////////////////////////////////////////////////////
+    if (S_ISDIR(st.st_mode))
+	{
+		close(file);
+
+		std::string indexPath = filePath;
+		if (indexPath[indexPath.size() - 1] != '/')
+		    indexPath += "/";
+		indexPath += "index.html";
+
+		int indexFd = open(indexPath.c_str(), O_RDONLY);
+		if (indexFd >= 0)
+		{
+		    struct stat indexSt;
+		    stat(indexPath.c_str(), &indexSt);
+		    client->setResponseHeaders(createHeadersLength("text/html", "200", indexSt.st_size, client->getKeepAlive()));
+		    client->setFileFd(indexFd);
+		    return;
+		}
+
+		if (AUTOINDEX_ENABLED)
+		{
+		    std::string listing = generateAutoindexHTML(filePath, path);
+		    int listingFd = writeAutoindexToTempFile(listing);
+		    client->setResponseHeaders(createHeadersLength("text/html", "200", listing.size(), client->getKeepAlive()));
+		    client->setFileFd(listingFd);
+		    return;
+		}
+
+		std::string body = "Forbidden";
+		client->setResponseHeaders(createHeadersLength("text/plain", "403 Forbidden", body.size(), client->getKeepAlive()));
+		client->setBuffer(body.c_str(), body.size());
+		client->setFileOffset(0);
+		client->setIsRegularFile(true);
+		client->setFileSize(body.size());
+		client->setFileFd(-1);
+		return;
+	}
+    ///////////////////////////////////////////////////////////////////////////////
     if (S_ISREG(st.st_mode) != 0)
         client->setResponseHeaders(createHeadersLength(typeFile, "200", st.st_size, client->getKeepAlive()));
     else
