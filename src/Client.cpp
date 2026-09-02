@@ -1,6 +1,15 @@
 #include "../includes/Client.hpp"
+#include <cctype>
 
 #define MAX_BODY_SIZE 10000000  // 10MB, como limite de body, esto iria en el archivo de configuracion
+
+static std::string toLower(const std::string &s)
+{
+    std::string result = s;
+    for (size_t i = 0; i < result.size(); ++i)
+        result[i] = std::tolower(static_cast<unsigned char>(result[i]));
+    return result;
+}
 
 Client::Client(int socket): _socket(socket)
 {
@@ -11,6 +20,7 @@ Client::Client(int socket): _socket(socket)
     this->_isRegularFile = true;
     this->_parseState = LINE;
     this->_keep_alive = true; 
+    this->_parseError = 0;
 };
 
 int Client::getSocket(){ return (this->_socket); };
@@ -66,6 +76,10 @@ bool Client::isRequestComplete()
     return (_parseState == DONE);
 }
 
+void Client::setParseError(int code) { this->_parseError = code; }
+
+int  Client::getParseError() { return this->_parseError; }
+
 void Client::parseRequest()
 {
     if (_parseState == LINE)
@@ -97,15 +111,32 @@ void Client::parseRequest()
             recv_buffer.erase(0, pos + 2);
 
             if (line.empty())
-            {
-                std::map<std::string, std::string>::iterator it =
-                    this->_request.headers.find("Content-Length");
-                if (it == this->_request.headers.end())
-                    _parseState = DONE;
-                else
-                    _parseState = BODY;
-                break;
-            }
+			{
+				bool isHttp11 = (this->_request.version == "HTTP/1.1");
+				std::map<std::string, std::string>::iterator connIt =
+					this->_request.headers.find("connection");
+
+				if (connIt == this->_request.headers.end())
+					setKeepAlive(isHttp11);
+				else
+					setKeepAlive(toLower(connIt->second) == "keep-alive");
+
+				bool hasContentLength = this->_request.headers.count("content-length") > 0;
+				bool hasChunked = this->_request.headers.count("transfer-encoding") > 0;
+
+				if (hasContentLength)
+					_parseState = BODY;
+				else if (hasChunked)
+					_parseState = BODY_CHUNKED;
+				else if (this->_request.type == "POST")
+				{
+					setParseError(411);
+					_parseState = DONE;
+				}
+				else
+					_parseState = DONE;
+				break;
+			}
 
             size_t colon = line.find(':');
             if (colon == std::string::npos)
@@ -116,7 +147,7 @@ void Client::parseRequest()
             if (!value.empty() && value[0] == ' ')
                 value.erase(0, 1);
 
-            this->_request.headers[key] = value;
+            this->_request.headers[toLower(key)] = value;
         }
         if (_parseState == HEADERS)
             return;
@@ -124,12 +155,12 @@ void Client::parseRequest()
 
     if (_parseState == BODY)
     {
-        size_t expectedLen = std::atol(this->_request.headers["Content-Length"].c_str());
+        size_t expectedLen = std::atol(this->_request.headers["content-length"].c_str());
 
 		if (expectedLen > MAX_BODY_SIZE)
 		{
-			_parseState = DONE;   // para para no explotar por un tamaño demasiado grande
-			// pendiente: tiene que triggerear un 413
+			setParseError(413);
+			_parseState = DONE;
 			return;
 		}
 
@@ -142,6 +173,38 @@ void Client::parseRequest()
 
         _parseState = DONE;
     }
+    
+    if (_parseState == BODY_CHUNKED)
+{
+    while (true)
+    {
+        size_t pos = recv_buffer.find("\r\n");
+        if (pos == std::string::npos)
+            return;
+
+        std::string sizeLine = recv_buffer.substr(0, pos);
+        size_t chunkSize = std::strtoul(sizeLine.c_str(), NULL, 16);
+
+        if (chunkSize == 0)
+        {
+            recv_buffer.erase(0, pos + 2);
+            if (recv_buffer.size() < 2)
+                return;
+            recv_buffer.erase(0, 2);
+
+            setRecuestBody(_chunkedBody);
+            _parseState = DONE;
+            break;
+        }
+
+        if (recv_buffer.size() < pos + 2 + chunkSize + 2)
+            return;
+
+        std::string chunkData = recv_buffer.substr(pos + 2, chunkSize);
+        _chunkedBody += chunkData;
+        recv_buffer.erase(0, pos + 2 + chunkSize + 2);
+    }
+}
 }
 
 void Client::resetRequest()
@@ -156,8 +219,11 @@ void Client::resetRequest()
     this->_request.path.clear();
     this->_request.type.clear();
     this->_request.version.clear();
+    this->_request.headers.clear();
     this->_responseHeaders.clear();
     this->_keep_alive = true;
     this->_parseState = LINE;
     this->_ep.events = EPOLLIN;
+    this->_chunkedBody.clear();
+    this->_parseError = 0;
 }

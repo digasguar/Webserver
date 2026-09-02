@@ -15,6 +15,7 @@ enum ParseState
     LINE,
     HEADERS,
     BODY,
+    BODY_CHUNKED,
     DONE
 };
 
@@ -28,6 +29,8 @@ private:
     ClientState _state; //estado del cliente
     
     ParseState _parseState;
+    
+    int _parseError;
 
     std::string _responseHeaders; //los headers de la respuesta
 
@@ -44,6 +47,8 @@ private:
     int _file_fd; //que archivo es
 
     bool _keep_alive; // mantener conexiones aviertas
+
+	std::string _chunkedBody;
 
     struct epoll_event _ep;
 
@@ -80,6 +85,8 @@ public:
     void resetRequest();
     void parseRequest();
     bool isRequestComplete();
+    void setParseError(int code);
+    int  getParseError();
     
     Client(int socket);
     ~Client();
