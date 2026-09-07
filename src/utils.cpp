@@ -23,12 +23,17 @@ void close_conection(std::map<int, Client> &clients, int current_fd, int epoll_f
 void finishResponse(std::map<int, Client> &clients, int current_fd, int epoll_fd)
 {
     Client& client = clients.at(current_fd);
+
+    if (client.getFileFd() != -1)
+        close(client.getFileFd());
     if (!client.getKeepAlive())
     {
-        
         close_conection(clients, current_fd, epoll_fd);
         return ;
     }
-    else
-        client.resetRequest();
+    client.resetRequest();
+    epoll_event ev;
+    ev.data.fd = current_fd;
+    ev.events = EPOLLIN;
+    epoll_ctl(epoll_fd, EPOLL_CTL_MOD, current_fd, &ev);
 }
