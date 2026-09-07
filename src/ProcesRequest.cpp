@@ -39,6 +39,22 @@ std::string createChunkedHeader(const std::string type, const std::string status
             "\r\n");
 }
 
+// en general para las redirecciones (ha surgido de un bug al hacer GET a un directorio)
+std::string createRedirectHeader(const std::string &location, bool keep_alive) // para cuando la ruta del directorio no acaba en "/", le decimos al cliente que la buena es con "/" y le redirigimos
+{
+    if (!keep_alive)
+        return ("HTTP/1.1 301 Moved Permanently\r\n"
+            "Location: " + location + "\r\n"
+            "Content-Length: 0\r\n"
+            "Connection: close\r\n"
+            "\r\n");
+    return ("HTTP/1.1 301 Moved Permanently\r\n"
+            "Location: " + location + "\r\n"
+            "Content-Length: 0\r\n"
+            "Connection: keep-alive\r\n"
+            "\r\n");
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 // creamos un index.html que iría en el directorio objetivo, pero las tripas las hacemos un string a secas,
 // y en lugar de cagarlo en el directorio, lo guardamos en un tempfile, que luego se borrará, ara que no quede rastro
@@ -209,9 +225,20 @@ void requestGet(Client *client)
 	{
 		close(file);
 
+		if (path[path.size() - 1] != '/')
+		{
+		    client->setResponseHeaders(createRedirectHeader(path + "/", client->getKeepAlive()));
+		    client->setBuffer("", 0);
+		    client->setFileOffset(0);
+		    client->setIsRegularFile(true);
+		    client->setFileSize(0);
+		    client->setFileFd(-1);
+		    return;
+		}
+
 		std::string indexPath = filePath;
-		if (indexPath[indexPath.size() - 1] != '/')
-		    indexPath += "/";
+		if (indexPath[indexPath.size() - 1] != '/') // estas dos lineas creoq ue se pueden queitar porque el if anterior "fixea" que el cliente nos meta un directorio sin / al final, no lo hago porque tengo miedo, y sigue funcionando bien aun con el dead code
+		    indexPath += "/";						// estas dos lineas creoq ue se pueden queitar porque el if anterior "fixea" que el cliente nos meta un directorio sin / al final, no lo hago porque tengo miedo, y sigue funcionando bien aun con el dead code
 		indexPath += "index.html";
 
 		int indexFd = open(indexPath.c_str(), O_RDONLY);
