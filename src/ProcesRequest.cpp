@@ -3,6 +3,8 @@
 
 #include <cstring>
 #include <dirent.h>
+#include <vector>
+#include <algorithm>
 
 #define AUTOINDEX_ENABLED true  // pendiente: vendra del archivo de configuracion
 
@@ -59,11 +61,23 @@ std::string createRedirectHeader(const std::string &location, bool keep_alive) /
 // creamos un index.html que iría en el directorio objetivo, pero las tripas las hacemos un string a secas,
 // y en lugar de cagarlo en el directorio, lo guardamos en un tempfile, que luego se borrará, ara que no quede rastro
 
+struct DirEntry
+{
+    std::string name;
+    bool isDir;
+};
+
+static bool compareDirEntries(const DirEntry &a, const DirEntry &b)
+{
+    if (a.isDir != b.isDir)
+        return (a.isDir); // directories first
+    return (a.name < b.name); // alphabetical within the same type
+}
+
+
 std::string generateAutoindexHTML(const std::string &dirFsPath, const std::string &urlPath)
 {
-    std::stringstream html;
-    html << "<html><head><title>Index of " << urlPath << "</title></head><body>";
-    html << "<h1>Index of " << urlPath << "</h1><ul>";
+    std::vector<DirEntry> entries;
 
     DIR *dir = opendir(dirFsPath.c_str());
     if (dir)
@@ -74,9 +88,31 @@ std::string generateAutoindexHTML(const std::string &dirFsPath, const std::strin
             std::string name = entry->d_name;
             if (name == ".")
                 continue;
-            html << "<li><a href=\"" << name << "\">" << name << "</a></li>";
+
+            std::string fullPath = dirFsPath;
+            if (fullPath[fullPath.size() - 1] != '/')
+                fullPath += "/";
+            fullPath += name;
+
+            struct stat entrySt;
+            DirEntry de;
+            de.name = name;
+            de.isDir = (stat(fullPath.c_str(), &entrySt) == 0 && S_ISDIR(entrySt.st_mode));
+            entries.push_back(de);
         }
         closedir(dir);
+    }
+
+    std::sort(entries.begin(), entries.end(), compareDirEntries);
+
+    std::stringstream html;
+    html << "<html><head><title>Index of " << urlPath << "</title></head><body>";
+    html << "<h1>Index of " << urlPath << "</h1><ul>";
+    for (size_t i = 0; i < entries.size(); ++i)
+    {
+        std::string suffix = entries[i].isDir ? "/" : "";
+        html << "<li><a href=\"" << entries[i].name << suffix << "\">"
+             << entries[i].name << suffix << "</a></li>";
     }
     html << "</ul></body></html>";
     return (html.str());
@@ -162,9 +198,7 @@ static bool isCreateTargetWithinRoot(const std::string &fsPath, const std::strin
 void requestGet(Client *client)
 {
     std::string path = client->getRequest().path;
-
-    if (path == "/")
-        path = "/index.html";
+    
     std::string filePath = "./html" + path;
     
     ///////////////////////////////////
