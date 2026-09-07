@@ -21,6 +21,10 @@ void createClient(std::map<int, Client> &clients, int fd, int epoll_fd)
 
 void reciveRequest(std::map<int, Client> &clients, int current_fd, int epoll_fd)
 {
+    std::map<int, Client>::iterator it = clients.find(current_fd);
+    if (it == clients.end())
+        return ;
+        
     char buffer[4094];
 
     int bytes = recv(current_fd, buffer, sizeof(buffer), 0);
@@ -31,6 +35,7 @@ void reciveRequest(std::map<int, Client> &clients, int current_fd, int epoll_fd)
         epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL);
         return ;
     }
+
     Client& client = clients.at(current_fd);
 
     client.recv_buffer.append(buffer, bytes);
@@ -118,6 +123,9 @@ void prepare_socket(int fd)
 
 void sendResponse(std::map<int, Client> &clients, int current_fd, int epoll_fd)
 {
+    std::map<int, Client>::iterator it = clients.find(current_fd);
+    if (it == clients.end())
+        return ;
     //std::cout << "ENTRO EN EPOLLOUT FD: " << current_fd << std::endl;
     Client& client = clients.at(current_fd);
     std::string headers = client.getResponseHeaders();
