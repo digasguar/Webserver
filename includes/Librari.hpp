@@ -16,11 +16,14 @@ class Client;
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <signal.h>
+#include <ctime>
 
 
 void Procesrequest(Client * client);
 int calculate_index(int current_fd, int fd, epoll_event ep);
 void finishResponse(std::map<int, Client> &clients, int current_fd, int epoll_fd);
 void close_conection(std::map<int, Client> &clients, int current_fd, int epoll_fd);
+void checkClientTimeut(std::map<int, Client> &clients, int epoll_fd);
 
 #endif

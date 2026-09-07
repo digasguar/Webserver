@@ -42,3 +42,24 @@ void finishResponse(std::map<int, Client> &clients, int current_fd, int epoll_fd
     if (epoll_ctl(epoll_fd, EPOLL_CTL_MOD, current_fd, &ev) == -1)
         close_conection(clients, current_fd, epoll_fd);
 }
+
+void checkClientTimeut(std::map<int, Client> &clients, int epoll_fd)
+{
+    time_t now = time(NULL);
+    std::map<int, Client>::iterator it = clients.begin();
+
+    while(it != clients.end())
+    {
+        if (now - it->second.getLastActivity() >= CLIENT_TIMEOUT)
+        {
+            std::cout << "Client timeout: " <<  it->first << std::endl;
+            epoll_ctl(epoll_fd, EPOLL_CTL_DEL, it->first, NULL);
+            close(it->first);
+            std::map<int, Client>::iterator toErrase = it;
+            it++;
+            clients.erase(toErrase);
+        }
+        else
+            it++;
+    }
+}

@@ -3,6 +3,9 @@
 #include <string>
 #include "Librari.hpp"
 #include "HttpRequest.hpp"
+
+#define CLIENT_TIMEOUT 5 //tiempo para el timeut por inactividad 
+
 enum ClientState
 {
     READING_REQUEST,
@@ -52,6 +55,8 @@ private:
 
     struct epoll_event _ep;
 
+    time_t _last_activity;
+
 public:
     std::string recv_buffer;
 
@@ -87,6 +92,9 @@ public:
     bool isRequestComplete();
     void setParseError(int code);
     int  getParseError();
+
+    void updateActivity();
+    time_t getLastActivity() const;
     
     Client(int socket);
     ~Client();
