@@ -173,7 +173,7 @@ int main()
         exit(EXIT_FAILURE); 
     }
     prepare_socket(fd);
-    int epoll_fd = epoll_create1(0);
+    int epoll_fd = epoll_create(42);
     if (epoll_fd == -1)
     {
         std::cout << "FAILURE EPOLL\n";
