@@ -3,6 +3,7 @@
 
 #define MAX_BODY_SIZE 10000000  // 10MB, como limite de body, esto iria en el archivo de configuracion
 
+
 static std::string toLower(const std::string &s)
 {
     std::string result = s;
@@ -21,6 +22,7 @@ Client::Client(int socket): _socket(socket)
     this->_parseState = LINE;
     this->_keep_alive = true; 
     this->_parseError = 0;
+    this->_last_activity = std::time(NULL);
 };
 
 int Client::getSocket(){ return (this->_socket); };
@@ -227,3 +229,7 @@ void Client::resetRequest()
     this->_chunkedBody.clear();
     this->_parseError = 0;
 }
+
+void Client::updateActivity(){this->_last_activity = time(NULL);}
+
+time_t Client::getLastActivity() const {return (this->_last_activity);}

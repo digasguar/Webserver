@@ -404,6 +404,18 @@ void requestDelete(Client *client)
     client->setFileSize(body.size());
 }
 
+void requestNotAllowed(Client *client)
+{
+    std::string body = "405 Method Not Allowed"; 
+    std::string status = "405";
+
+    client->setResponseHeaders(createHeadersLength("text/plain", status, body.size(), client->getKeepAlive()));
+    client->setBuffer(body.c_str(),body.size());
+    client->setFileOffset(0);
+    client->setIsRegularFile(true);
+    client->setFileSize(body.size());
+}
+
 void Procesrequest(Client * client)
 {
 	if (client->getParseError() != 0)
@@ -448,4 +460,5 @@ void Procesrequest(Client * client)
         return (requestPost(client));
     else if (client->getRequest().type == "DELETE")
         return (requestDelete(client));
+    requestNotAllowed(client);
 }
