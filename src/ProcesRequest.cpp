@@ -74,6 +74,26 @@ static bool compareDirEntries(const DirEntry &a, const DirEntry &b)
     return (a.name < b.name); // alphabetical within the same type
 }
 
+////////////////////////////
+//para el HTML escaping (portegerlo para que no haya injections ni nada)
+
+static std::string htmlEscape(const std::string &s)
+{
+    std::string out;
+    for (size_t i = 0; i < s.size(); ++i)
+    {
+        switch (s[i])
+        {
+            case '<': out += "&lt;"; break;
+            case '>': out += "&gt;"; break;
+            case '&': out += "&amp;"; break;
+            case '"': out += "&quot;"; break;
+            default: out += s[i];
+        }
+    }
+    return (out);
+}
+/////////////////////////////
 
 std::string generateAutoindexHTML(const std::string &dirFsPath, const std::string &urlPath)
 {
@@ -110,9 +130,10 @@ std::string generateAutoindexHTML(const std::string &dirFsPath, const std::strin
     html << "<h1>Index of " << urlPath << "</h1><ul>";
     for (size_t i = 0; i < entries.size(); ++i)
     {
-        std::string suffix = entries[i].isDir ? "/" : "";
-        html << "<li><a href=\"" << entries[i].name << suffix << "\">"
-             << entries[i].name << suffix << "</a></li>";
+		std::string suffix = entries[i].isDir ? "/" : "";
+		std::string safeName = htmlEscape(entries[i].name + suffix);
+		html << "<li><a href=\"" << safeName << "\">"
+			<< safeName << "</a></li>";
     }
     html << "</ul></body></html>";
     return (html.str());

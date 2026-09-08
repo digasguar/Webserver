@@ -107,6 +107,12 @@ void prepare_socket(int fd)
     sockaddr.sin_port = htons(8080);
     sockaddr.sin_addr.s_addr = INADDR_ANY; // acepta peticiones de cualquier interfaz de red
 
+	////////////////////////
+	//para qye no haga FAILURE BIND
+	int opt = 1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+	////////////////////////
+	
     if (bind(fd, (struct sockaddr*)&sockaddr, sizeof(sockaddr)) < 0) // asociar el puerto al soker
     {
         std::cout << "FAILURE BIND" << std::endl;
