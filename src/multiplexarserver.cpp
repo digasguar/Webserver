@@ -21,17 +21,22 @@ void createClient(std::map<int, Client> &clients, int fd, int epoll_fd)
 
 void reciveRequest(std::map<int, Client> &clients, int current_fd, int epoll_fd)
 {
+    std::map<int, Client>::iterator it = clients.find(current_fd);
+    if (it == clients.end())
+        return ;
+
     char buffer[4094];
+
+    Client& client = it->second;
 
     int bytes = recv(current_fd, buffer, sizeof(buffer), 0);
     if (bytes <= 0)
     {
-        clients.erase(current_fd);
-        close(current_fd);
-        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL);
+        close_conection(clients, current_fd, epoll_fd);
         return ;
     }
-    Client& client = clients.at(current_fd);
+
+    client.updateActivity();
 
     client.recv_buffer.append(buffer, bytes);
 
@@ -118,8 +123,11 @@ void prepare_socket(int fd)
 
 void sendResponse(std::map<int, Client> &clients, int current_fd, int epoll_fd)
 {
+    std::map<int, Client>::iterator it = clients.find(current_fd);
+    if (it == clients.end())
+        return ;
     //std::cout << "ENTRO EN EPOLLOUT FD: " << current_fd << std::endl;
-    Client& client = clients.at(current_fd);
+    Client& client = it->second;
     std::string headers = client.getResponseHeaders();
     if (client.getHeaderOffset() < headers.size())
     {
@@ -156,6 +164,7 @@ void dummy(std::map<int, Client> &clients, int fd, int epoll_fd)
 
 int main()
 {
+    signal(SIGPIPE, SIG_IGN);
     //(ipv4, TCP, protocolo con 0 el sistema lo eligue por ti)
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd == -1)
@@ -183,12 +192,13 @@ int main()
     std::map<int, Client> clients;
     while (1)
     {
-       int n = epoll_wait(epoll_fd, events, 42, -1);
-       if (n == -1)
+        int n = epoll_wait(epoll_fd, events, 42, 1000);
+        if (n == -1)
         {
             perror("epoll wait");
             exit(EXIT_FAILURE);
         }
+        checkClientTimeut(clients, epoll_fd);
         void (*functions[])(std::map<int, Client> &, int, int) =
         {
             dummy,
@@ -196,7 +206,7 @@ int main()
             reciveRequest,
             sendResponse
         };
-       for (int i = 0; i < n; i++)
+        for (int i = 0; i < n; i++)
         {
             int current_fd = events[i].data.fd;
             size_t index = calculate_index(current_fd, fd, events[i]);
