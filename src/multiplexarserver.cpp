@@ -80,7 +80,7 @@ int prepare_response(std::map<int, Client> &clients, Client &client, int current
         ssize_t bytes = read(client.getFileFd(), client.getBuffer(), 4096);
         if (bytes <=0)
         {
-            close_conection(clients, current_fd, epoll_fd);
+            finishResponse(clients, current_fd, epoll_fd); //aqui habia un closed connection, pero finishResponse hace que el keep alive fncione en este caso
             return (0);
         }
         client.setFileSize(bytes);
@@ -179,7 +179,7 @@ int main()
         exit(EXIT_FAILURE); 
     }
     prepare_socket(fd);
-    int epoll_fd = epoll_create1(0);
+    int epoll_fd = epoll_create(42);
     if (epoll_fd == -1)
     {
         std::cout << "FAILURE EPOLL\n";
