@@ -75,7 +75,14 @@ void Client::setIsRegularFile(const bool regular){this->_isRegularFile = regular
 
 void Client::setFileSize(const size_t size){this->_fileSize = size;}
 
-void Client::setBuffer(const char *buffer, size_t size){std::copy(buffer, buffer + size, this->_buffer);}
+ // ahora evita overflow, si algun dia hace falta mas de 4096 (tamaño de buffer)
+ // entonces se cambia sin problemas
+void Client::setBuffer(const char *buffer, size_t size)
+{
+    if (size > sizeof(this->_buffer))
+        size = sizeof(this->_buffer);
+    std::copy(buffer, buffer + size, this->_buffer);
+}
 
 void Client::setKeepAlive(const bool k){this->_keep_alive = k;}
 
