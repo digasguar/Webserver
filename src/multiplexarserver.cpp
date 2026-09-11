@@ -80,7 +80,7 @@ int prepare_response(std::map<int, Client> &clients, Client &client, int current
         ssize_t bytes = read(client.getFileFd(), client.getBuffer(), 4096);
         if (bytes <=0)
         {
-            close_conection(clients, current_fd, epoll_fd);
+            finishResponse(clients, current_fd, epoll_fd); //aqui habia un closed connection, pero finishResponse hace que el keep alive fncione en este caso
             return (0);
         }
         client.setFileSize(bytes);
@@ -107,6 +107,12 @@ void prepare_socket(int fd)
     sockaddr.sin_port = htons(8080);
     sockaddr.sin_addr.s_addr = INADDR_ANY; // acepta peticiones de cualquier interfaz de red
 
+	////////////////////////
+	//para qye no haga FAILURE BIND
+	int opt = 1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+	////////////////////////
+	
     if (bind(fd, (struct sockaddr*)&sockaddr, sizeof(sockaddr)) < 0) // asociar el puerto al soker
     {
         std::cout << "FAILURE BIND" << std::endl;

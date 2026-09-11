@@ -5,6 +5,7 @@
 #include <dirent.h>
 #include <vector>
 #include <algorithm>
+#include <cctype>
 
 #define AUTOINDEX_ENABLED true  // pendiente: vendra del archivo de configuracion
 
@@ -74,6 +75,47 @@ static bool compareDirEntries(const DirEntry &a, const DirEntry &b)
     return (a.name < b.name); // alphabetical within the same type
 }
 
+////////////////////////////
+//para el HTML escaping (portegerlo para que no haya injections ni nada)
+
+static std::string htmlEscape(const std::string &s)
+{
+    std::string out;
+    for (size_t i = 0; i < s.size(); ++i)
+    {
+        switch (s[i])
+        {
+            case '<': out += "&lt;"; break;
+            case '>': out += "&gt;"; break;
+            case '&': out += "&amp;"; break;
+            case '"': out += "&quot;"; break;
+            default: out += s[i];
+        }
+    }
+    return (out);
+}
+
+// encodea un filename para que se pueda meter en la URL sin que explote nada
+static std::string urlEncode(const std::string &s)
+{
+    static const char *hexDigits = "0123456789ABCDEF";
+    std::string out;
+    for (size_t i = 0; i < s.size(); ++i)
+    {
+        unsigned char c = s[i];
+        if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~')
+            out += c;
+        else
+        {
+            out += '%';
+            out += hexDigits[(c >> 4) & 0xF];
+            out += hexDigits[c & 0xF];
+        }
+    }
+    return (out);
+}
+
+/////////////////////////////
 
 std::string generateAutoindexHTML(const std::string &dirFsPath, const std::string &urlPath)
 {
@@ -106,13 +148,13 @@ std::string generateAutoindexHTML(const std::string &dirFsPath, const std::strin
     std::sort(entries.begin(), entries.end(), compareDirEntries);
 
     std::stringstream html;
-    html << "<html><head><title>Index of " << urlPath << "</title></head><body>";
-    html << "<h1>Index of " << urlPath << "</h1><ul>";
+    html << "<html><head><title>Index of " << htmlEscape(urlPath) << "</title></head><body>";
+    html << "<h1>Index of " << htmlEscape(urlPath) << "</h1><ul>";
     for (size_t i = 0; i < entries.size(); ++i)
     {
-        std::string suffix = entries[i].isDir ? "/" : "";
-        html << "<li><a href=\"" << entries[i].name << suffix << "\">"
-             << entries[i].name << suffix << "</a></li>";
+		std::string suffix = entries[i].isDir ? "/" : "";
+		html << "<li><a href=\"" << urlEncode(entries[i].name) << suffix << "\">" //para la URL
+			<< htmlEscape(entries[i].name) << suffix << "</a></li>"; //el texto que se muestra en la pagina
     }
     html << "</ul></body></html>";
     return (html.str());

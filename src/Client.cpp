@@ -12,6 +12,30 @@ static std::string toLower(const std::string &s)
     return result;
 }
 
+//para decodear los %20 %3C %2f y asi
+static std::string percentDecode(const std::string &s)
+{
+    std::string out;
+    for (size_t i = 0; i < s.size(); ++i)
+    {
+        if (s[i] == '%' && i + 2 < s.size()
+            && std::isxdigit(static_cast<unsigned char>(s[i + 1]))
+            && std::isxdigit(static_cast<unsigned char>(s[i + 2])))
+        {
+            std::string hex = s.substr(i + 1, 2);
+            int value = std::strtol(hex.c_str(), NULL, 16);
+            out += static_cast<char>(value);
+            i += 2;
+        }
+        else
+            out += s[i];
+    }
+    return out;
+}
+
+
+
+
 Client::Client(int socket): _socket(socket)
 {
     this->_file_fd = -1;
@@ -51,7 +75,14 @@ void Client::setIsRegularFile(const bool regular){this->_isRegularFile = regular
 
 void Client::setFileSize(const size_t size){this->_fileSize = size;}
 
-void Client::setBuffer(const char *buffer, size_t size){std::copy(buffer, buffer + size, this->_buffer);}
+ // ahora evita overflow, si algun dia hace falta mas de 4096 (tamaño de buffer)
+ // entonces se cambia sin problemas
+void Client::setBuffer(const char *buffer, size_t size)
+{
+    if (size > sizeof(this->_buffer))
+        size = sizeof(this->_buffer);
+    std::copy(buffer, buffer + size, this->_buffer);
+}
 
 void Client::setKeepAlive(const bool k){this->_keep_alive = k;}
 
@@ -96,6 +127,11 @@ void Client::parseRequest()
         std::istringstream iss(line);
         std::string type, path, version;
         iss >> type >> path >> version;
+
+		///////////
+		//true decoded path
+		path = percentDecode(path);
+		///////////
 
         setRequestType(type);
         setRequestPath(path);
