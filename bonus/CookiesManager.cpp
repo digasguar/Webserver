@@ -4,11 +4,16 @@ CookiesManager::CookiesManager(){}
 
 CookiesManager::~CookiesManager(){}
 
-CookiesManager::CookiesManager(const CookiesManager &other){}
+CookiesManager::CookiesManager(const CookiesManager &other): _cookies(other._cookies){}
 
-CookiesManager &CookiesManager::operator=(const CookiesManager &other){}
+CookiesManager &CookiesManager::operator=(const CookiesManager &other)
+{
+    if (this != &other)
+        this->_cookies = other._cookies;
+    return (*this);
+}
 
-void CookiesManager::createCookie(std::string name)
+std::string CookiesManager::createCookie(std::string name)
 {
     std::stringstream ss;
     ss << name << time(NULL) << rand();
@@ -16,14 +21,15 @@ void CookiesManager::createCookie(std::string name)
     std::stringstream hash;
     hash << h;
     this->_cookies.insert(std::make_pair(hash.str(), Cookie(name)));
+    return (hash.str());
 }
 
-Cookie CookiesManager::existCookie(std::string hash)
+Cookie *CookiesManager::existCookie(std::string hash)
 {
     std::map<std::string, Cookie>::iterator it = this->_cookies.find(hash);
     if (it != this->_cookies.end() && expired(it))
-        //return (nullptr); 
-    return (it->second);
+        return (NULL); 
+    return (&it->second);
 }
 
 bool CookiesManager::expired(std::map<std::string, Cookie>::iterator it)

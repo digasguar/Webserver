@@ -1,6 +1,6 @@
 #ifndef COOKIESMANAGER
 # define COOKIESMANAGER
-#include "includes/Cookie.hpp"
+#include "Cookie.hpp"
 
 class CookiesManager
 {
@@ -11,8 +11,8 @@ public:
     CookiesManager(const CookiesManager &other);
     CookiesManager& operator=(const CookiesManager &other);
     ~CookiesManager();
-    Cookie existCookie(std::string hash);
-    void createCookie(std::string name);
+    Cookie *existCookie(std::string hash);
+    std::string createCookie(std::string name);
     bool expired(std::map<std::string, Cookie>::iterator it);
 
     std::string getUser(Cookie cookie);

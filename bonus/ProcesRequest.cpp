@@ -1,5 +1,6 @@
 #include "includes/Librari.hpp"
 #include "includes/Client.hpp"
+#include "includes/CookiesManager.hpp"
 
 #include <cstring>
 #include <dirent.h>
@@ -458,8 +459,9 @@ void requestNotAllowed(Client *client)
     client->setFileSize(body.size());
 }
 
-void Procesrequest(Client * client)
+void Procesrequest(Client * client, CookiesManager &cookieManager)
 {
+    (void)cookieManager;
 	if (client->getParseError() != 0)
     {
         std::string status, body;

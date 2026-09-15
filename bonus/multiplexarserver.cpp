@@ -1,6 +1,7 @@
 
 #include "includes/Librari.hpp"
 #include "includes/Client.hpp"
+#include "includes/CookiesManager.hpp"
 
 void createClient(std::map<int, Client> &clients, int fd, int epoll_fd)
 {
@@ -19,7 +20,7 @@ void createClient(std::map<int, Client> &clients, int fd, int epoll_fd)
     return ;
 }
 
-void reciveRequest(std::map<int, Client> &clients, int current_fd, int epoll_fd)
+void reciveRequest(std::map<int, Client> &clients, int current_fd, int epoll_fd, CookiesManager &cookiesManager)
 {
     std::map<int, Client>::iterator it = clients.find(current_fd);
     if (it == clients.end())
@@ -43,7 +44,7 @@ void reciveRequest(std::map<int, Client> &clients, int current_fd, int epoll_fd)
     client.parseRequest();
     if (!client.isRequestComplete())
     	return ;
-    Procesrequest(&client);
+    Procesrequest(&client, cookiesManager);
     epoll_event response_event;
     response_event.data.fd = current_fd;
     response_event.events = EPOLLOUT;
@@ -199,7 +200,7 @@ int main()
     }
     epoll_event events[42];
     std::map<int, Client> clients;
-
+    CookiesManager cookieManager = CookiesManager();
     while (1)
     {
         int n = epoll_wait(epoll_fd, events, 42, 1000);
@@ -209,18 +210,19 @@ int main()
             exit(EXIT_FAILURE);
         }
         checkClientTimeut(clients, epoll_fd);
-        void (*functions[])(std::map<int, Client> &, int, int) =
-        {
-            dummy,
-            createClient,
-            reciveRequest,
-            sendResponse
-        };
         for (int i = 0; i < n; i++)
         {
             int current_fd = events[i].data.fd;
             size_t index = calculate_index(current_fd, fd, events[i]);
-            functions[index](clients, current_fd, epoll_fd);
+
+            if (index == 0)
+                dummy(clients, current_fd, epoll_fd);
+            else if (index == 1)
+                createClient(clients, current_fd, epoll_fd);
+            else if (index == 2)
+                reciveRequest(clients, current_fd, epoll_fd, cookieManager);
+            else if (index == 3)
+                sendResponse(clients, current_fd, epoll_fd);
         }
     }
     close(fd);
