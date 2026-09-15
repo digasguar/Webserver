@@ -257,14 +257,28 @@ void requestGet(Client *client)
 	}
     //////////////////////////////////
     
-    std::string typeFile;
-    if (path.find(".html") != std::string::npos)
-        typeFile = "text/html";
-    else if (path.find(".jpg") != std::string::npos)
-        typeFile = "image/jpeg";
-    else 
-        typeFile = "text/plain";
-    int file = open(filePath.c_str(), O_RDONLY);
+    static std::map<std::string, std::string> typeFileDict;
+	if (typeFileDict.empty())
+	{
+		typeFileDict[".html"] = "text/html";
+		typeFileDict[".jpg"]  = "image/jpeg";
+		typeFileDict[".css"]  = "text/css";
+		typeFileDict[".js"]   = "application/javascript";
+		typeFileDict[".png"]  = "image/png";
+		typeFileDict[".ico"]  = "image/x-icon";
+		// pendiente: mas tipos segun se necesiten
+	}
+	std::string typeFile = "text/plain"; // default si no hay match
+	size_t dot = path.find_last_of('.');
+	if (dot != std::string::npos)
+	{
+		std::string ext = path.substr(dot);
+		std::map<std::string, std::string>::iterator it = typeFileDict.find(ext);
+		if (it != typeFileDict.end())
+		    typeFile = it->second;
+	}
+	/////////////////
+	int file = open(filePath.c_str(), O_RDONLY);
     struct stat st;
     if (file < 0)
     { 
