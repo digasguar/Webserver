@@ -83,7 +83,11 @@ int prepare_response(std::map<int, Client> &clients, Client &client, int current
                 chunk.append("\r\n");
             }
             else
+            {
                 chunk = "0\r\n\r\n";
+                close(client.getFileFd());
+                client.setFileFd(-1);
+            }
             client.setBuffer(chunk.c_str(), chunk.size());
             client.setFileSize(chunk.size());
             client.setFileOffset(0);
@@ -181,7 +185,6 @@ void sendResponse(std::map<int, Client> &clients, int current_fd, int epoll_fd)
     if (sent <= 0)
     {
         finishResponse(clients, current_fd, epoll_fd);
-        close(client.getFileFd());
         return ;
     }
     client.setFileOffset(client.getFileOffset() + sent);
