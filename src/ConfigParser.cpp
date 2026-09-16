@@ -1,6 +1,8 @@
 #include "../includes/ConfigParser.hpp"
+#include "../includes/Client.hpp"
 #include <cstdlib>
 #include <cctype>
+#include <climits>
 
 static bool isValidNumber(const std::string &s)
 {
@@ -158,6 +160,43 @@ static bool parseLocationBody(TokenCursor &cursor, LocationConfig &loc, std::str
     }
 }
 
+static int parseBodySize(std::string &value, size_t &number, std::string &err)
+{
+    size_t i = 0;
+    while (i < value.size() && std::isdigit(static_cast<unsigned char>(value[i])))
+        ++i;
+    std::string first = value.substr(0, i);
+    std::string second = value.substr(i);
+    if (!isValidNumber(first))
+    {
+        err = "directive 'client_max_body_size' expects a numeric value, got '" + value + "'";
+        return (0);
+    }
+    unsigned long multiplier = 1;
+    std::string secondLower = toLower(second);
+    if (secondLower.empty())
+        multiplier = 1;
+    else if (secondLower == "k" || secondLower == "kb")
+        multiplier = 1024;
+    else if (secondLower == "m" || secondLower == "mb")
+        multiplier = 1024 * 1024;
+    else if (secondLower == "g" || secondLower == "gb")
+        multiplier = 1024 * 1024 * 1024;
+    else
+    {
+        err = "unknown size '" + second + "' at max_body_size";
+        return (0);
+    }
+    unsigned long num = std::strtoul(first.c_str(), NULL, 10);
+    if (multiplier != 1 && num > (ULONG_MAX / multiplier))
+    {
+        err = "client max_body_size value too long";
+        return (0);
+    }
+    number = static_cast<size_t>(num) * multiplier;
+    return (1);
+}
+
 static bool parseServerBody(TokenCursor &cursor, ServerConfig &srv, std::string &err)
 {
     bool listenSet = false;
@@ -210,12 +249,10 @@ static bool parseServerBody(TokenCursor &cursor, ServerConfig &srv, std::string 
             std::string value;
             if (!readSingleArg(cursor, value, err, "client_max_body_size"))
                 return (0);
-            if (!isValidNumber(value))
-            {
-                err = "directive 'client_max_body_size' expects a numeric value, got '" + value + "'";
+            size_t number;
+            if (!parseBodySize(value, number, err))
                 return (0);
-            }
-            srv.clientMaxBodySize = static_cast<size_t>(std::strtoul(value.c_str(), NULL, 10));
+            srv.clientMaxBodySize = number;
         }
         else if (directive == "error_page")
         {

@@ -105,4 +105,7 @@ public:
     Client(int socket, const ServerConfig *serverConfig);
     ~Client();
 };
+
+std::string toLower(const std::string &s);
+
 #endif
