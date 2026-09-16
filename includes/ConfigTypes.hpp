@@ -14,6 +14,7 @@ struct LocationConfig
     std::string index;
     std::string uploadStore;
     std::map<std::string, std::string> cgiHandlers; // extension -> interprete
+    std::string redirectTo; // vacio = sin redireccion para esta location
 
     LocationConfig()
     {

@@ -150,6 +150,11 @@ static bool parseLocationBody(TokenCursor &cursor, LocationConfig &loc, std::str
             err = "nested 'location' blocks are not supported";
             return (0); //se puede hacer aca volviendo a llamar a parseLocationBody() pero ensucia el config file.
         }
+        else if (directive == "redirect")
+        {
+            if (!readSingleArg(cursor, loc.redirectTo, err, "redirect"))
+                return (0);
+        }
         else
         {
             err = "unknown directive '" + directive + "' inside location block";

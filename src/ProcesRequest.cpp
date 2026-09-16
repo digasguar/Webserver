@@ -596,6 +596,17 @@ void Procesrequest(Client * client)
     const ServerConfig *server = client->getServerConfig();
     const LocationConfig *loc = (server != NULL) ? findLocation(*server, client->getRequest().path) : NULL;
 
+    if (!loc->redirectTo.empty())
+    {
+        client->setResponseHeaders(createRedirectHeader(loc->redirectTo, client->getKeepAlive()));
+        client->setBuffer("", 0);
+        client->setFileOffset(0);
+        client->setIsRegularFile(true);
+        client->setFileSize(0);
+        client->setFileFd(-1);
+        return;
+    }
+
     if (loc == NULL)
     {
         std::string body = "Not Found";
