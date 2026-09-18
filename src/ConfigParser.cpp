@@ -98,6 +98,13 @@ static bool parseLocationBody(TokenCursor &cursor, LocationConfig &loc, std::str
 
         std::string directive = cursor.advance();
 
+        if (directive == "return")
+        {
+            if (!readTwoArgs(cursor, code, loc.redirectionPage, err, "return"))
+                return (0);
+            
+//me quede aca
+        }
         if (directive == "root")
         {
             if (!readSingleArg(cursor, loc.root, err, "root"))

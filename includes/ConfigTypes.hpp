@@ -13,6 +13,7 @@ struct LocationConfig
     bool autoindex;
     std::string index;
     std::string uploadStore;
+    std::string redirectionPage;
     std::map<std::string, std::string> cgiHandlers; // extension -> interprete
 
     LocationConfig()
