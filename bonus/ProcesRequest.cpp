@@ -99,6 +99,7 @@ std::string createAuthRedirectWithCookie(const std::string &location, const std:
             "Connection: keep-alive\r\n"
             "\r\n");
 }
+
 //lo mismo pero para setear las cookies 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -547,10 +548,8 @@ void Procesrequest(Client * client, CookiesManager &cookieManager)
         return (requestLoginSubmit(client, cookieManager));
 
     if (!isPublicRoute(path) && !client->hasValidSesion(cookieManager))
-        return (requestRedirectToLogin(client));
+        return(requestRedirectToLogin(client));
 
-
-    
     if (client->getRequest().type == "GET")
         return (requestGet(client));
     else if (client->getRequest().type == "POST")

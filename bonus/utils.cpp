@@ -144,7 +144,7 @@ void requestLoginSubmit(Client *client, CookiesManager &cookieManager)
     }
 
     std::string hash = cookieManager.createCookie(username);
-    std::string cookieValue = "session_id=" + hash;
+    std::string cookieValue = "session_id=" + hash + "; Path=/";
     std::string headers = createAuthRedirectWithCookie("/", cookieValue, client->getKeepAlive());
 
     client->setResponseHeaders(headers);
