@@ -175,7 +175,7 @@ static int parseBodySize(std::string &value, size_t &number, std::string &err)
     unsigned long multiplier = 1;
     std::string secondLower = toLower(second);
     if (secondLower.empty())
-        multiplier = 1;
+        multiplier = 1;//falta en b
     else if (secondLower == "k" || secondLower == "kb")
         multiplier = 1024;
     else if (secondLower == "m" || secondLower == "mb")
