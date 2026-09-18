@@ -71,12 +71,12 @@ std::string createRedirectHeader(const std::string &location, bool keep_alive) /
 std::string createAuthRedirect(const std::string &location, bool keep_alive)
 {
     if (!keep_alive)
-        return ("HTTP/1.1 303 Moved Permanently\r\n"
+        return ("HTTP/1.1 303 See Other\r\n"
             "Location: " + location + "\r\n"
             "Content-Length: 0\r\n"
             "Connection: close\r\n"
             "\r\n");
-    return ("HTTP/1.1 303 Moved Permanently\r\n"
+    return ("HTTP/1.1 303 See Other\r\n"
             "Location: " + location + "\r\n"
             "Content-Length: 0\r\n"
             "Connection: keep-alive\r\n"
@@ -501,7 +501,6 @@ void requestNotAllowed(Client *client)
 
 void Procesrequest(Client * client, CookiesManager &cookieManager)
 {
-    (void)cookieManager;
 	if (client->getParseError() != 0)
     {
         std::string status, body;
@@ -538,6 +537,20 @@ void Procesrequest(Client * client, CookiesManager &cookieManager)
 	////////////////////////////////////////////////////////////////////////////////
 	////////////////////////////////////////////////////////////////////////////////
 
+    const std::string &path = client->getRequest().path;
+    const std::string &type = client->getRequest().type;
+
+    if (path == "/login" && type == "GET")
+        return (requestLoginPage(client));
+
+    if (path == "/login/submit" && type == "POST")
+        return (requestLoginSubmit(client, cookieManager));
+
+    if (!isPublicRoute(path) && !client->hasValidSesion(cookieManager))
+        return (requestRedirectToLogin(client));
+
+
+    
     if (client->getRequest().type == "GET")
         return (requestGet(client));
     else if (client->getRequest().type == "POST")

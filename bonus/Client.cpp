@@ -115,6 +115,7 @@ int  Client::getParseError() { return this->_parseError; }
 
 void Client::parseRequest(CookiesManager &cookieManager)
 {
+    (void)cookieManager;
     if (_parseState == LINE)
     {
         size_t pos = recv_buffer.find("\r\n");

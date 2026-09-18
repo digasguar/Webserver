@@ -2,7 +2,7 @@
 # define COOKIE_HPP
 # include <functional>
 # include <iostream> 
-# define DATAEXPIRES 200
+# define DATAEXPIRES 600
 
 class Cookie
 {
