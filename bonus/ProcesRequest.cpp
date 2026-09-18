@@ -63,6 +63,46 @@ std::string createRedirectHeader(const std::string &location, bool keep_alive) /
 // creamos un index.html que iría en el directorio objetivo, pero las tripas las hacemos un string a secas,
 // y en lugar de cagarlo en el directorio, lo guardamos en un tempfile, que luego se borrará, ara que no quede rastro
 
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// no se para que usaras el 301 pero el problema es que los nabegadores cachean la redireccion definitiva entonces perofiero usar un 303,
+// asi cada vez que quermos meternos en algun sitio no nos enviara siempre a login
+
+std::string createAuthRedirect(const std::string &location, bool keep_alive)
+{
+    if (!keep_alive)
+        return ("HTTP/1.1 303 Moved Permanently\r\n"
+            "Location: " + location + "\r\n"
+            "Content-Length: 0\r\n"
+            "Connection: close\r\n"
+            "\r\n");
+    return ("HTTP/1.1 303 Moved Permanently\r\n"
+            "Location: " + location + "\r\n"
+            "Content-Length: 0\r\n"
+            "Connection: keep-alive\r\n"
+            "\r\n");
+}
+
+std::string createAuthRedirectWithCookie(const std::string &location, const std::string &cookieValue, bool keep_alive)
+{
+    if (!keep_alive)
+        return ("HTTP/1.1 303 See Other\r\n"
+            "Location: " + location + "\r\n"
+            "Set-Cookie: " + cookieValue + "\r\n"
+            "Content-Length: 0\r\n"
+            "Connection: close\r\n"
+            "\r\n");
+    return ("HTTP/1.1 303 See Other\r\n"
+            "Location: " + location + "\r\n"
+            "Set-Cookie: " + cookieValue + "\r\n"
+            "Content-Length: 0\r\n"
+            "Connection: keep-alive\r\n"
+            "\r\n");
+}
+//lo mismo pero para setear las cookies 
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 struct DirEntry
 {
     std::string name;

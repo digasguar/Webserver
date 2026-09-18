@@ -27,7 +27,7 @@ std::string CookiesManager::createCookie(std::string name)
 Cookie *CookiesManager::existCookie(std::string hash)
 {
     std::map<std::string, Cookie>::iterator it = this->_cookies.find(hash);
-    if (it != this->_cookies.end() && expired(it))
+    if (it == this->_cookies.end() || expired(it))
         return (NULL); 
     return (&it->second);
 }
@@ -37,9 +37,9 @@ bool CookiesManager::expired(std::map<std::string, Cookie>::iterator it)
     if (it->second.isExpired())
     {
         this->_cookies.erase(it);
-        return (false);
+        return (true);
     }
-    return (true);
+    return (false);
 }
 
 std::string CookiesManager::getUser(Cookie cookie)
@@ -47,7 +47,12 @@ std::string CookiesManager::getUser(Cookie cookie)
     return (cookie.getName());
 }
 
-static unsigned long djb2Hash(const std::string &str)
+bool CookiesManager::isValidSesion(std::string hash)
+{
+    return (existCookie(hash) != NULL);
+}
+
+unsigned long djb2Hash(const std::string &str)
 {
     unsigned long hash = 5381;
     for (size_t i = 0; i < str.size();i++)

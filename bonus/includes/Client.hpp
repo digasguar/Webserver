@@ -3,6 +3,7 @@
 #include <string>
 #include "Librari.hpp"
 #include "HttpRequest.hpp"
+#include "CookiesManager.hpp"
 
 #define CLIENT_TIMEOUT 5 //tiempo para el timeut por inactividad 
 
@@ -88,13 +89,15 @@ public:
     struct epoll_event getEpollEvent();
 
     void resetRequest();
-    void parseRequest();
+    void parseRequest(CookiesManager &cookieManager);
     bool isRequestComplete();
     void setParseError(int code);
     int  getParseError();
 
     void updateActivity();
     time_t getLastActivity() const;
+
+    bool hasValidSesion(CookiesManager &cookieManager);
     
     Client(int socket);
     ~Client();

@@ -41,7 +41,7 @@ void reciveRequest(std::map<int, Client> &clients, int current_fd, int epoll_fd,
 
     client.recv_buffer.append(buffer, bytes);
 
-    client.parseRequest();
+    client.parseRequest(cookiesManager);
     if (!client.isRequestComplete())
     	return ;
     Procesrequest(&client, cookiesManager);

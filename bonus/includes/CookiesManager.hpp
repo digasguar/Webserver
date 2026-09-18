@@ -1,6 +1,12 @@
-#ifndef COOKIESMANAGER
-# define COOKIESMANAGER
+#ifndef COOKIESMANAGER_HPP
+# define COOKIESMANAGER_HPP
 #include "Cookie.hpp"
+#include "map"
+#include <sstream>
+#include <cstdlib> 
+#include <ctime> 
+#include <iostream>
+
 
 class CookiesManager
 {
@@ -14,8 +20,8 @@ public:
     Cookie *existCookie(std::string hash);
     std::string createCookie(std::string name);
     bool expired(std::map<std::string, Cookie>::iterator it);
-
+    bool isValidSesion(std::string hash);
     std::string getUser(Cookie cookie);
 };
-static unsigned long djb2Hash(const std::string &str);
+unsigned long djb2Hash(const std::string &str);
 #endif

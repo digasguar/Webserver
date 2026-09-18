@@ -1,7 +1,7 @@
 #ifndef COOKIE_HPP
 # define COOKIE_HPP
-# include "Librari.hpp"
 # include <functional>
+# include <iostream> 
 # define DATAEXPIRES 200
 
 class Cookie
@@ -18,6 +18,6 @@ public:
     time_t getDataExpire() const;
     bool isExpired();
 };
-static unsigned long djb2Hash(std::string &string);
+unsigned long djb2Hash(std::string &string);
 
 #endif

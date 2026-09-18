@@ -1,5 +1,6 @@
 #include "includes/Librari.hpp"
 #include "includes/Client.hpp"
+#include "includes/CookiesManager.hpp"
 
 int calculate_index(int current_fd, int fd, epoll_event ep)
 {
@@ -62,4 +63,93 @@ void checkClientTimeut(std::map<int, Client> &clients, int epoll_fd)
         else
             it++;
     }
+}
+
+std::string extractCookie(const std::string &cookieHeader)
+{
+    std::string prefix = "session_id=";
+    size_t pos = cookieHeader.find(prefix);
+
+    if (pos == std::string::npos)
+        return ("");
+    return (cookieHeader.substr(pos + prefix.size()));
+}
+
+bool isPublicRoute(const std::string &path)
+{
+    std::string publicRoutes[] = {"/login", "/login/submit"};
+    size_t routeCount = sizeof(publicRoutes) / sizeof(publicRoutes[0]);
+    for(size_t i = 0; i < routeCount; i++)
+    {
+        if (path == publicRoutes[i])
+            return (true);
+    }
+    return (false);
+}
+
+std::string extractFormField(const std::string &body, const std::string &field)
+{
+    std::string searchName = field + "=";
+    size_t pos = body.find(searchName);
+
+    if (pos == std::string::npos)
+        return ("");
+    pos += searchName.size();
+
+    size_t end = body.find('&', pos);
+    std::string value;
+
+    if (end == std::string::npos)
+        value = body.substr(pos);
+    else
+        value = body.substr(pos, end - pos);
+    return (value); //No se si tendriamos que usar percentDecode mejor aqui o no pero bueno eso ya a criterio de asier 
+}
+
+void requestRedirectToLogin(Client *client)
+{
+    std::string headers = createAuthRedirect("/login", client->getKeepAlive());
+
+    client->setResponseHeaders(headers);
+    client->setBuffer("", 0);
+    client->setFileOffset(0);
+    client->setIsRegularFile(true);
+    client->setFileSize(0);
+}
+
+void requestLoginPage(Client *client)
+{
+    std::string headers = createHeadersLength("text/html", "200 OK", LOGIN_PAGE.size(), client->getKeepAlive());
+
+    client->setResponseHeaders(headers);
+    client->setBuffer(LOGIN_PAGE.c_str(), LOGIN_PAGE.size());
+    client->setFileOffset(0);
+    client->setIsRegularFile(true);
+    client->setFileSize(LOGIN_PAGE.size());
+}
+
+void requestLoginSubmit(Client *client, CookiesManager &cookieManager)
+{
+    std::string username = extractFormField(client->getRequest().body, "username");
+
+    if (username.empty())
+    {
+        std::string headers = createAuthRedirect("/login", client->getKeepAlive());
+        client->setResponseHeaders(headers);
+        client->setBuffer("", 0);
+        client->setFileOffset(0);
+        client->setIsRegularFile(true);
+        client->setFileSize(0);
+        return;
+    }
+
+    std::string hash = cookieManager.createCookie(username);
+    std::string cookieValue = "session_id=" + hash;
+    std::string headers = createAuthRedirectWithCookie("/", cookieValue, client->getKeepAlive());
+
+    client->setResponseHeaders(headers);
+    client->setBuffer("", 0);
+    client->setFileOffset(0);
+    client->setIsRegularFile(true);
+    client->setFileSize(0);
 }
