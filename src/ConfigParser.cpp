@@ -16,6 +16,22 @@ static bool isValidNumber(const std::string &s)
     return (1);
 }
 
+static bool isValidStatusCode(std::string &code, std::string &err)
+{
+    if (!isValidNumber(code))
+    {
+        err = "directive 'return' expects a numeric status code, got '" + code + "'";
+        return (0);
+    }
+    unsigned long codeLong = strtoul(code.c_str(), NULL, 10);
+    if (codeLong < 300 || codeLong > 399)
+    {
+        err = "directive 'return' expects a valid redirect status code (3xx), got '" + code + "'";
+        return (0);
+    }
+    return (1);
+}
+
 static bool readSingleArg(TokenCursor &cursor, std::string &value, std::string &err, const std::string &directiveName)
 {
     if (!cursor.hasMore() || cursor.peek() == ";" || cursor.peek() == "{" || cursor.peek() == "}")
@@ -100,10 +116,12 @@ static bool parseLocationBody(TokenCursor &cursor, LocationConfig &loc, std::str
 
         if (directive == "return")
         {
+            std::string code;
             if (!readTwoArgs(cursor, code, loc.redirectionPage, err, "return"))
                 return (0);
-            
-//me quede aca
+            if (!isValidStatusCode(code, err))
+                return (0);
+            loc.redirectionCode = code;
         }
         if (directive == "root")
         {
