@@ -494,7 +494,7 @@ void requestNotAllowed(Client *client, const LocationConfig &loc)
     headers << "HTTP/1.1 405 Method Not Allowed\r\n"
             << "Content-Type: text/plain\r\n"
             << "Content-Length: " << body.size() << "\r\n"
-            << "Allow: " << allowList << "\r\n"
+            << "Allow: " << allowList << "\r\n"//solo por esto esta hardcodeado.
             << (client->getKeepAlive() ? "Connection: keep-alive\r\n" : "Connection: close\r\n")
             << "\r\n";
 

@@ -34,7 +34,7 @@ struct ServerConfig
 
     ServerConfig()
     {
-        this->host = "0.0.0.0";
+        this->host = "0.0.0.0";//no 255.25.255.255;
         this->port = -1;
         this->clientMaxBodySize = MAX_BODY_SIZE;
     }
