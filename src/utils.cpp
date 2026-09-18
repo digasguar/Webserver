@@ -1,9 +1,9 @@
 #include "../includes/Librari.hpp"
 #include "../includes/Client.hpp"
 
-int calculate_index(int current_fd, int fd, epoll_event ep)
+int calculate_index(int current_fd, const std::map<int, const ServerConfig*> &listenFds, epoll_event ep)
 {
-    if (current_fd == fd)
+    if (listenFds.find(current_fd) != listenFds.end())
         return (1);
     if (ep.events & EPOLLIN)
         return (2);
