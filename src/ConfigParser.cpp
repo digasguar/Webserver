@@ -23,13 +23,20 @@ static bool isValidStatusCode(std::string &code, std::string &err)
         err = "directive 'return' expects a numeric status code, got '" + code + "'";
         return (0);
     }
-    unsigned long codeLong = strtoul(code.c_str(), NULL, 10);
-    if (codeLong < 300 || codeLong > 399)
+    if (static_cast<unsigned char>(code[0]) == '0')
     {
         err = "directive 'return' expects a valid redirect status code (3xx), got '" + code + "'";
         return (0);
     }
-    return (1);
+    static const std::string validCodes[] = { "300", "301", "302", "303", "304", "307", "308" };
+    static const size_t count = sizeof(validCodes) / sizeof(validCodes[0]);
+    for (size_t i = 0; i < count; ++i)
+    {
+        if (code == validCodes[i])
+            return (1);
+    }
+    err = "directive 'return' expects a valid redirect status code (3xx), got '" + code + "'";
+    return (0);
 }
 
 static bool readSingleArg(TokenCursor &cursor, std::string &value, std::string &err, const std::string &directiveName)
@@ -123,7 +130,7 @@ static bool parseLocationBody(TokenCursor &cursor, LocationConfig &loc, std::str
                 return (0);
             loc.redirectionCode = code;
         }
-        if (directive == "root")
+        else if (directive == "root")
         {
             if (!readSingleArg(cursor, loc.root, err, "root"))
                 return (0);

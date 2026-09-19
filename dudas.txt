@@ -1,0 +1,2 @@
+en el createheaderRedirect de Asier es solo para redirigir directorios sin / al final, pero si mando
+un directorio que no tiene / pero que tampoco existe ? tendria que tirar luego un 404 en teoria.

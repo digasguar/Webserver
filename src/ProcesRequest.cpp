@@ -505,6 +505,22 @@ void requestNotAllowed(Client *client, const LocationConfig &loc)
     client->setFileSize(body.size());
 }
 
+static void sendRedirect(Client *client, const std::string &code, const std::string &redirectPath)
+{
+    std::stringstream ss;
+    ss << "HTTP/1.1 " << code << " " << statusMessage(code) << "\r\n";
+    ss << "Location: " << redirectPath << "\r\n";
+    ss << "Content-Length: 0\r\n";
+    ss << (client->getKeepAlive() ? "Connection: keep-alive\r\n" : "Connection: close\r\n");
+    ss << "\r\n";
+
+    client->setResponseHeaders(ss.str());
+    client->setBuffer("", 0);
+    client->setFileFd(-1);
+    client->setFileSize(0);
+    client->setFileOffset(0);
+}
+
 void Procesrequest(Client * client)
 {
 	if (client->getParseError() != 0)
@@ -555,6 +571,12 @@ void Procesrequest(Client * client)
         client->setIsRegularFile(true);
         client->setFileSize(body.size());
         client->setFileFd(-1);
+        return;
+    }
+
+    if (!loc->redirectionPage.empty())
+    {
+        sendRedirect(client, loc->redirectionCode, loc->redirectionPage);
         return;
     }
 
