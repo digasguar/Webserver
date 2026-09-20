@@ -137,7 +137,7 @@ void prepare_socket(int fd, const std::string &host, int port)
     }
 
 	////////////////////////
-	//para qye no haga FAILURE BIND
+	//para qye no haga FAILURE BIND // solo al reiniciar el server y que no espere el TIME_WAIT del puerto anterior
 	int opt = 1;
     setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 	////////////////////////

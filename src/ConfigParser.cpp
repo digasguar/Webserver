@@ -4,6 +4,24 @@
 #include <cctype>
 #include <climits>
 
+static bool duplicatePorts(const Config &config)
+{
+    size_t configLen = config.size();
+    if (configLen == 1)
+        return (0);
+    for (size_t i = 0; i < (configLen - 1); ++i)
+    {
+        for (size_t j = i + 1; j < configLen; ++j)
+        {
+            if (config[i].port != config[j].port)
+                continue;
+            if (config[i].host == "0.0.0.0" || config[j].host == "0.0.0.0" ||
+                config[i].host == config[j].host)
+                return (1);
+        }
+    }
+    return (0);
+}
 static bool isValidNumber(const std::string &s)
 {
     if (s.empty())
@@ -368,6 +386,11 @@ bool parseConfig(const std::vector<std::string> &tokens, Config &config, std::st
     if (config.empty()) //creo que nunca llegaria aca pero por las dudas.
     {
         errorMessage = "no server blocks defined";
+        return (0);
+    }
+    if (duplicatePorts(config))
+    {
+        errorMessage = "running multiple servers on the same host:port is not supported";
         return (0);
     }
     return (1);
