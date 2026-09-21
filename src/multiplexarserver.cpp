@@ -10,25 +10,30 @@
 
 void createClient(std::map<int, Client> &clients, int fd, int epoll_fd, const std::map<int, const ServerConfig*> &listenFds)
 {
-    sockaddr_in client;
-    socklen_t len = sizeof(client);
-    int fd_client = accept(fd,(struct sockaddr*)&client, &len);
-    if (fd_client < 0)
-        return ;
-    fcntl(fd_client, F_SETFL, O_NONBLOCK);
-
     std::map<int, const ServerConfig*>::const_iterator srvIt = listenFds.find(fd);
     const ServerConfig *serverConfig = NULL;
+
     if (srvIt != listenFds.end())
         serverConfig = srvIt->second;
 
-    clients.insert(std::make_pair(fd_client, Client(fd_client, serverConfig)));
-    epoll_event client_event;
-    client_event.data.fd = fd_client;
-    client_event.events = EPOLLIN;
+    while (true)
+    {
+        int fd_client = accept(fd, NULL, NULL);
+        if (fd_client < 0)
+            break;
+        fcntl(fd_client, F_SETFL, O_NONBLOCK);
 
-    epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd_client, &client_event);
-    return ;
+        clients.insert(std::make_pair(fd_client, Client(fd_client, serverConfig)));
+
+        epoll_event client_event;
+        client_event.data.fd = fd_client;
+        client_event.events = EPOLLIN;
+        if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd_client, &client_event) == -1)
+        {
+            clients.erase(fd_client);
+            close(fd_client);
+        }
+    }
 }
 
 void reciveRequest(std::map<int, Client> &clients, int current_fd, int epoll_fd)
@@ -151,7 +156,7 @@ void prepare_socket(int fd, const std::string &host, int port)
     freeaddrinfo(res);
 
     // (que fd escucha, numero de peticiones antes que se bloquee)
-    if (listen(fd, 42) < 0)
+    if (listen(fd, SOMAXCONN) < 0)
     {
         std::cout << "FAILURE LISTEN" << std::endl;
         exit(EXIT_FAILURE);
@@ -243,6 +248,7 @@ static std::map<int, const ServerConfig*> setupListenSockets(const Config &confi
             std::cout << "FAILURE CREATE SOCKET" << std::endl;
             exit(EXIT_FAILURE);
         }
+        fcntl(fd, F_SETFL, O_NONBLOCK);
         prepare_socket(fd, config[i].host, config[i].port);
 
         epoll_event event;
@@ -275,11 +281,11 @@ int main(int argc, char **argv)
 
     std::map<int, const ServerConfig*> listenFds = setupListenSockets(config, epoll_fd);
 
-    epoll_event events[42];
+    epoll_event events[1024];
     std::map<int, Client> clients;
     while (1)
     {
-        int n = epoll_wait(epoll_fd, events, 42, 1000);
+        int n = epoll_wait(epoll_fd, events, 1024, 1000);
         if (n == -1)
         {
             perror("epoll wait");
@@ -291,7 +297,8 @@ int main(int argc, char **argv)
             dummy,
             dummy, // el indice 1 (nueva conexion) se maneja aparte con createClient, porque necesita listenFds
             reciveRequest,
-            sendResponse
+            sendResponse,
+            close_conection
         };
         for (int i = 0; i < n; i++)
         {

@@ -1,5 +1,6 @@
 #include "../includes/Librari.hpp"
 #include "../includes/Client.hpp"
+#include <vector>
 
 int calculate_index(int current_fd, const std::map<int, const ServerConfig*> &listenFds, epoll_event ep)
 {
@@ -9,15 +10,20 @@ int calculate_index(int current_fd, const std::map<int, const ServerConfig*> &li
         return (2);
     if (ep.events & EPOLLOUT)
         return (3);
+    if (ep.events & (EPOLLERR | EPOLLHUP))
+        return (4);
     return (0);
 }
 
 void close_conection(std::map<int, Client> &clients, int current_fd, int epoll_fd)
 {
-    close(current_fd);
+    std::map<int, Client>::iterator it = clients.find(current_fd);
+    if (it != clients.end() && it->second.getFileFd() != -1)
+        close(it->second.getFileFd());
     epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL);
-    clients.erase(current_fd);
-    std::cout << "FIN\n";
+    close(current_fd);
+    if (it != clients.end())
+        clients.erase(it);
 }
 
 void finishResponse(std::map<int, Client> &clients, int current_fd, int epoll_fd)
@@ -45,22 +51,22 @@ void finishResponse(std::map<int, Client> &clients, int current_fd, int epoll_fd
 
 void checkClientTimeut(std::map<int, Client> &clients, int epoll_fd)
 {
+    static time_t lastCheck = 0;
     time_t now = time(NULL);
-    std::map<int, Client>::iterator it = clients.begin();
+    if (now == lastCheck)
+        return ;
+    lastCheck = now;
 
-    while(it != clients.end())
+    std::vector<int> expired;
+    for (std::map<int, Client>::iterator it = clients.begin(); it != clients.end(); ++it)
     {
         if (now - it->second.getLastActivity() >= CLIENT_TIMEOUT)
-        {
-            std::cout << "Client timeout: " <<  it->first << std::endl;
-            epoll_ctl(epoll_fd, EPOLL_CTL_DEL, it->first, NULL);
-            close(it->first);
-            std::map<int, Client>::iterator toErrase = it;
-            it++;
-            clients.erase(toErrase);
-        }
-        else
-            it++;
+            expired.push_back(it->first);
+    }
+    for (size_t i = 0; i < expired.size(); ++i)
+    {
+        std::cout << "Client timeout: " << expired[i] << std::endl;
+        close_conection(clients, expired[i], epoll_fd);
     }
 }
 
