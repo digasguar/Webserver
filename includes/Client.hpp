@@ -4,7 +4,7 @@
 #include "Librari.hpp"
 #include "HttpRequest.hpp"
 #define MAX_BODY_SIZE 1024 * 1024 * 10  // 10MB, fallback defensivo si _serverConfig fuera NULL (no deberia pasar nunca)
-#define CLIENT_TIMEOUT 75 //tiempo para el timeut por inactividad (igual que el keepalive_timeout por defecto de nginx)
+#define CLIENT_TIMEOUT 120 //tiempo para el timeut por inactividad (igual que el keepalive_timeout por defecto de nginx)
 
 struct ServerConfig;
 
