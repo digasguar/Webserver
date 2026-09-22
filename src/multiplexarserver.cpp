@@ -7,6 +7,7 @@
 #include <cstring>
 
 #define DEFAULT_CONFIG_PATH "./config/default.conf"
+volatile sig_atomic_t running = 1;
 
 void createClient(std::map<int, Client> &clients, int fd, int epoll_fd, const std::map<int, const ServerConfig*> &listenFds)
 {
@@ -42,7 +43,7 @@ void reciveRequest(std::map<int, Client> &clients, int current_fd, int epoll_fd)
     if (it == clients.end())
         return ;
 
-    char buffer[4094]; //porque esto y no 4096?
+    char buffer[4096];
 
     Client& client = it->second;
 
@@ -264,10 +265,17 @@ static std::map<int, const ServerConfig*> setupListenSockets(const Config &confi
     return (listenFds);
 }
 
+void signalHandler(int)
+{
+    running = 0;
+}
+
 int main(int argc, char **argv)
 {
-    signal(SIGPIPE, SIG_IGN);
+    signal(SIGINT, signalHandler);
+
     // si se hace send() a un socket que ya cerró la conexion el kernel devuelve SIGPIPE que mata todo el proceso.
+
 
     std::string configPath = resolveConfigPath(argc, argv);
     Config config = loadConfig(configPath);
@@ -283,9 +291,11 @@ int main(int argc, char **argv)
 
     epoll_event events[1024];
     std::map<int, Client> clients;
-    while (1)
+    while (running)
     {
         int n = epoll_wait(epoll_fd, events, 1024, 1000);
+        if (n <= 0)
+            continue;
         if (n == -1)
         {
             perror("epoll wait");
@@ -310,6 +320,7 @@ int main(int argc, char **argv)
                 functions[index](clients, current_fd, epoll_fd);
         }
     }
+    close(epoll_fd);
     for (std::map<int, const ServerConfig*>::iterator it = listenFds.begin(); it != listenFds.end(); ++it)
         close(it->first);
 }

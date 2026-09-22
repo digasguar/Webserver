@@ -6,12 +6,12 @@ int calculate_index(int current_fd, const std::map<int, const ServerConfig*> &li
 {
     if (listenFds.find(current_fd) != listenFds.end())
         return (1);
+    if (ep.events & (EPOLLERR | EPOLLHUP))
+        return (4);
     if (ep.events & EPOLLIN)
         return (2);
     if (ep.events & EPOLLOUT)
         return (3);
-    if (ep.events & (EPOLLERR | EPOLLHUP))
-        return (4);
     return (0);
 }
 
