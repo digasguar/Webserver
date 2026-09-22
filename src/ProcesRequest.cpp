@@ -608,16 +608,7 @@ void Procesrequest(Client * client)
         return;
     }
 
-    if (!loc->redirectTo.empty())
-    {
-        client->setResponseHeaders(createRedirectHeader(loc->redirectTo, client->getKeepAlive()));
-        client->setBuffer("", 0);
-        client->setFileOffset(0);
-        client->setIsRegularFile(true);
-        client->setFileSize(0);
-        client->setFileFd(-1);
-        return;
-    }
+   
 
     const std::string &method = client->getRequest().type;
     /////
