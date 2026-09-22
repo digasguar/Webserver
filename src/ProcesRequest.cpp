@@ -527,7 +527,7 @@ void requestNotAllowed(Client *client, const LocationConfig &loc)
     headers << "HTTP/1.1 405 Method Not Allowed\r\n"
             << "Content-Type: text/plain\r\n"
             << "Content-Length: " << body.size() << "\r\n"
-            << "Allow: " << allowList << "\r\n"
+            << "Allow: " << allowList << "\r\n"//solo por esto esta hardcodeado.
             << (client->getKeepAlive() ? "Connection: keep-alive\r\n" : "Connection: close\r\n")
             << "\r\n";
 
@@ -545,6 +545,7 @@ static bool isKnownMethod(const std::string &method)
     return (method == "GET" || method == "POST" || method == "DELETE");
 }
 
+
 void requestNotImplemented(Client *client)
 {
     std::string body = "501 Not Implemented";
@@ -555,6 +556,24 @@ void requestNotImplemented(Client *client)
     client->setFileSize(body.size());
 }
 ///////////////////////
+
+static void sendRedirect(Client *client, const std::string &code, const std::string &redirectPath)
+{
+    std::stringstream ss;
+    ss << "HTTP/1.1 " << code << " " << statusMessage(code) << "\r\n";
+    ss << "Location: " << redirectPath << "\r\n";
+    ss << "Content-Length: 0\r\n";
+    ss << (client->getKeepAlive() ? "Connection: keep-alive\r\n" : "Connection: close\r\n");
+    ss << "\r\n";
+
+    client->setResponseHeaders(ss.str());
+    client->setBuffer("", 0);
+    client->setFileFd(-1);
+    client->setFileSize(0);
+    client->setFileOffset(0);
+}
+
+
 void Procesrequest(Client * client)
 {
 	if (client->getParseError() != 0)
@@ -584,11 +603,11 @@ void Procesrequest(Client * client)
     /////////////////////////////////////////////////////////////////////////////////
     //	SE PUEDE BORRAR E N EL FUTURO
 
-    std::cout << "=== REQUEST COMPLETE ===\n"
+    /* std::cout << "=== REQUEST COMPLETE ===\n"
           << "type: " << client->getRequest().type << "\n"
           << "path: " << client->getRequest().path << "\n"
           << "body: [" << client->getRequest().body << "]\n"
-          << "=========================\n";
+          << "=========================\n"; */
 
 	////////////////////////////////////////////////////////////////////////////////
 	////////////////////////////////////////////////////////////////////////////////
@@ -608,7 +627,11 @@ void Procesrequest(Client * client)
         return;
     }
 
-   
+    if (!loc->redirectionPage.empty())
+    {
+        sendRedirect(client, loc->redirectionCode, loc->redirectionPage);
+        return;
+    }
 
     const std::string &method = client->getRequest().type;
     /////

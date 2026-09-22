@@ -1,7 +1,27 @@
 #include "../includes/ConfigParser.hpp"
+#include "../includes/Client.hpp"
 #include <cstdlib>
 #include <cctype>
+#include <climits>
 
+static bool duplicatePorts(const Config &config)
+{
+    size_t configLen = config.size();
+    if (configLen == 1)
+        return (0);
+    for (size_t i = 0; i < (configLen - 1); ++i)
+    {
+        for (size_t j = i + 1; j < configLen; ++j)
+        {
+            if (config[i].port != config[j].port)
+                continue;
+            if (config[i].host == "0.0.0.0" || config[j].host == "0.0.0.0" ||
+                config[i].host == config[j].host)
+                return (1);
+        }
+    }
+    return (0);
+}
 static bool isValidNumber(const std::string &s)
 {
     if (s.empty())
@@ -12,6 +32,29 @@ static bool isValidNumber(const std::string &s)
             return (0);
     }
     return (1);
+}
+
+static bool isValidStatusCode(std::string &code, std::string &err)
+{
+    if (!isValidNumber(code))
+    {
+        err = "directive 'return' expects a numeric status code, got '" + code + "'";
+        return (0);
+    }
+    if (static_cast<unsigned char>(code[0]) == '0')
+    {
+        err = "directive 'return' expects a valid redirect status code (3xx), got '" + code + "'";
+        return (0);
+    }
+    static const std::string validCodes[] = { "300", "301", "302", "303", "304", "307", "308" };
+    static const size_t count = sizeof(validCodes) / sizeof(validCodes[0]);
+    for (size_t i = 0; i < count; ++i)
+    {
+        if (code == validCodes[i])
+            return (1);
+    }
+    err = "directive 'return' expects a valid redirect status code (3xx), got '" + code + "'";
+    return (0);
 }
 
 static bool readSingleArg(TokenCursor &cursor, std::string &value, std::string &err, const std::string &directiveName)
@@ -96,7 +139,16 @@ static bool parseLocationBody(TokenCursor &cursor, LocationConfig &loc, std::str
 
         std::string directive = cursor.advance();
 
-        if (directive == "root")
+        if (directive == "return")
+        {
+            std::string code;
+            if (!readTwoArgs(cursor, code, loc.redirectionPage, err, "return"))
+                return (0);
+            if (!isValidStatusCode(code, err))
+                return (0);
+            loc.redirectionCode = code;
+        }
+        else if (directive == "root")
         {
             if (!readSingleArg(cursor, loc.root, err, "root"))
                 return (0);
@@ -158,6 +210,43 @@ static bool parseLocationBody(TokenCursor &cursor, LocationConfig &loc, std::str
     }
 }
 
+static int parseBodySize(std::string &value, size_t &number, std::string &err)
+{
+    size_t i = 0;
+    while (i < value.size() && std::isdigit(static_cast<unsigned char>(value[i])))
+        ++i;
+    std::string first = value.substr(0, i);
+    std::string second = value.substr(i);
+    if (!isValidNumber(first))
+    {
+        err = "directive 'client_max_body_size' expects a numeric value, got '" + value + "'";
+        return (0);
+    }
+    unsigned long multiplier = 1;
+    std::string secondLower = toLower(second);
+    if (secondLower.empty())
+        multiplier = 1;//falta en b
+    else if (secondLower == "k" || secondLower == "kb")
+        multiplier = 1024;
+    else if (secondLower == "m" || secondLower == "mb")
+        multiplier = 1024 * 1024;
+    else if (secondLower == "g" || secondLower == "gb")
+        multiplier = 1024 * 1024 * 1024;
+    else
+    {
+        err = "unknown size '" + second + "' at max_body_size";
+        return (0);
+    }
+    unsigned long num = std::strtoul(first.c_str(), NULL, 10);
+    if (multiplier != 1 && num > (ULONG_MAX / multiplier))
+    {
+        err = "client max_body_size value too long";
+        return (0);
+    }
+    number = static_cast<size_t>(num) * multiplier;
+    return (1);
+}
+
 static bool parseServerBody(TokenCursor &cursor, ServerConfig &srv, std::string &err)
 {
     bool listenSet = false;
@@ -210,12 +299,10 @@ static bool parseServerBody(TokenCursor &cursor, ServerConfig &srv, std::string 
             std::string value;
             if (!readSingleArg(cursor, value, err, "client_max_body_size"))
                 return (0);
-            if (!isValidNumber(value))
-            {
-                err = "directive 'client_max_body_size' expects a numeric value, got '" + value + "'";
+            size_t number;
+            if (!parseBodySize(value, number, err))
                 return (0);
-            }
-            srv.clientMaxBodySize = static_cast<size_t>(std::strtoul(value.c_str(), NULL, 10));
+            srv.clientMaxBodySize = number;
         }
         else if (directive == "error_page")
         {
@@ -299,6 +386,11 @@ bool parseConfig(const std::vector<std::string> &tokens, Config &config, std::st
     if (config.empty()) //creo que nunca llegaria aca pero por las dudas.
     {
         errorMessage = "no server blocks defined";
+        return (0);
+    }
+    if (duplicatePorts(config))
+    {
+        errorMessage = "running multiple servers on the same host:port is not supported";
         return (0);
     }
     return (1);
