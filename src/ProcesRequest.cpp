@@ -259,7 +259,21 @@ void requestGet(Client *client, const LocationConfig &loc)
     std::string filePath = loc.root + path;
 
     ///////////////////////////////////
-    if (!isPathWithinRoot(filePath, loc.root))
+    char realBoundary[PATH_MAX];
+    if (realpath((loc.root + loc.path).c_str(), realBoundary) == NULL)
+    {
+        // la propia location no tiene una carpeta real detras (config mal hecha
+        // o location "virtual"). nginx trata esto igual que "archivo no encontrado".
+        std::string body = "Not Found";
+        client->setResponseHeaders(createHeadersLength("text/plain", "404", body.size(), client->getKeepAlive()));
+        client->setBuffer(body.c_str(), body.size());
+        client->setFileOffset(0);
+        client->setIsRegularFile(true);
+        client->setFileSize(body.size());
+        client->setFileFd(-1);
+        return ;
+    }
+    if (!isPathWithinRoot(filePath, loc.root + loc.path))
 	{
 		std::string body = "Forbidden";
 		client->setResponseHeaders(createHeadersLength("text/plain", "403 Forbidden", body.size(), client->getKeepAlive()));
@@ -271,15 +285,28 @@ void requestGet(Client *client, const LocationConfig &loc)
 		return ;
 	}
     //////////////////////////////////
-
-    std::string typeFile;
-    if (path.find(".html") != std::string::npos)
-        typeFile = "text/html";
-    else if (path.find(".jpg") != std::string::npos)
-        typeFile = "image/jpeg";
-    else
-        typeFile = "text/plain";
-    int file = open(filePath.c_str(), O_RDONLY);
+    static std::map<std::string, std::string> typeFileDict;
+	if (typeFileDict.empty())
+	{
+		typeFileDict[".html"] = "text/html";
+		typeFileDict[".jpg"]  = "image/jpeg";
+		typeFileDict[".css"]  = "text/css";
+		typeFileDict[".js"]   = "application/javascript";
+		typeFileDict[".png"]  = "image/png";
+		typeFileDict[".ico"]  = "image/x-icon";
+		// pendiente: mas tipos segun se necesiten
+	}
+	std::string typeFile = "text/plain"; // default si no hay match
+	size_t dot = path.find_last_of('.');
+	if (dot != std::string::npos)
+	{
+		std::string ext = path.substr(dot);
+		std::map<std::string, std::string>::iterator it = typeFileDict.find(ext);
+		if (it != typeFileDict.end())
+		    typeFile = it->second;
+	}
+	/////////////////
+	int file = open(filePath.c_str(), O_RDONLY);
     struct stat st;
     if (file < 0)
     {
@@ -440,7 +467,13 @@ void requestDelete(Client *client, const LocationConfig &loc)
     std::string status;
 
     client->setFileFd(-1);
-    if (!isPathWithinRoot(filePath, loc.root)) //cambiado de path.find("../")
+    char realBoundary[PATH_MAX];
+    if (realpath((loc.root + loc.path).c_str(), realBoundary) == NULL)
+    {
+        body = "Not Found";
+        status = "404";
+    }
+    else if (!isPathWithinRoot(filePath, loc.root + loc.path)) //cambiado de path.find("../")
     {
         body = "Forbidden";
         status = "403 Forbidden";
@@ -504,6 +537,25 @@ void requestNotAllowed(Client *client, const LocationConfig &loc)
     client->setIsRegularFile(true);
     client->setFileSize(body.size());
 }
+///////////////////////
+// 501: el metodo no es uno de los que este servidor sabe manejar EN NINGUN sitio
+// (distinto de 405, que es "existe, pero no en esta location")
+static bool isKnownMethod(const std::string &method)
+{
+    return (method == "GET" || method == "POST" || method == "DELETE");
+}
+
+
+void requestNotImplemented(Client *client)
+{
+    std::string body = "501 Not Implemented";
+    client->setResponseHeaders(createHeadersLength("text/plain", "501 Not Implemented", body.size(), client->getKeepAlive()));
+    client->setBuffer(body.c_str(), body.size());
+    client->setFileOffset(0);
+    client->setIsRegularFile(true);
+    client->setFileSize(body.size());
+}
+///////////////////////
 
 static void sendRedirect(Client *client, const std::string &code, const std::string &redirectPath)
 {
@@ -520,6 +572,7 @@ static void sendRedirect(Client *client, const std::string &code, const std::str
     client->setFileSize(0);
     client->setFileOffset(0);
 }
+
 
 void Procesrequest(Client * client)
 {
@@ -581,6 +634,10 @@ void Procesrequest(Client * client)
     }
 
     const std::string &method = client->getRequest().type;
+    /////
+    if (!isKnownMethod(method))
+	    return (requestNotImplemented(client));
+    /////
     bool methodAllowed = false;
     for (size_t i = 0; i < loc->methods.size(); ++i)
     {
