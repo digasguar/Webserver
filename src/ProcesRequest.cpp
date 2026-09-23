@@ -289,11 +289,33 @@ void requestGet(Client *client, const LocationConfig &loc)
 	if (typeFileDict.empty())
 	{
 		typeFileDict[".html"] = "text/html";
-		typeFileDict[".jpg"]  = "image/jpeg";
 		typeFileDict[".css"]  = "text/css";
 		typeFileDict[".js"]   = "application/javascript";
+		
+		//image
+		typeFileDict[".jpg"]  = "image/jpeg";
 		typeFileDict[".png"]  = "image/png";
 		typeFileDict[".ico"]  = "image/x-icon";
+		typeFileDict[".gif"]  = "image/gif";
+		typeFileDict[".bmp"]  = "image/bmp";
+		
+		// video
+		typeFileDict[".mp4"] = "video/mp4";
+		typeFileDict[".webm"] = "video/webm";
+		typeFileDict[".ogv"]  = "video/ogg";
+		typeFileDict[".mov"]  = "video/quicktime";
+		typeFileDict[".avi"]  = "video/x-msvideo";
+		typeFileDict[".m4v"] = "video/x-m4v";
+		typeFileDict[".qt"]  = "video/quicktime";
+		
+		typeFileDict[".mkv"] = "video/x-matroska";
+
+		// audio
+		typeFileDict[".mp3"]  = "audio/mpeg";
+		typeFileDict[".wav"]  = "audio/wav";
+		typeFileDict[".ogg"]  = "audio/ogg";
+		typeFileDict[".m4a"]  = "audio/mp4";
+		typeFileDict[".flac"] = "audio/flac";
 		// pendiente: mas tipos segun se necesiten
 	}
 	std::string typeFile = "text/plain"; // default si no hay match
