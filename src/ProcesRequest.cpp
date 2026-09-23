@@ -1,13 +1,13 @@
 #include "../includes/Librari.hpp"
 #include "../includes/Client.hpp"
+#include "../includes/ConfigTypes.hpp"
+#include "../includes/ConfigLookup.hpp"
 
 #include <cstring>
 #include <dirent.h>
 #include <vector>
 #include <algorithm>
 #include <cctype>
-
-#define AUTOINDEX_ENABLED true  // pendiente: vendra del archivo de configuracion
 
 std::string createHeadersLength(const std::string type, const std::string status, size_t length, bool keep_alive)
 {
@@ -235,16 +235,45 @@ static bool isCreateTargetWithinRoot(const std::string &fsPath, const std::strin
         return true;
     return false;
 }
+
+// quita el prefijo de la location del path pedido, para poder reubicarlo bajo upload_store
+// ej: path="/uploads/algo.txt", locationPath="/uploads" -> "/algo.txt"
+static std::string stripLocationPrefix(const std::string &path, const std::string &locationPath)
+{
+    if (locationPath == "/" || path.compare(0, locationPath.size(), locationPath) != 0)
+        return (path);
+
+    std::string rest = path.substr(locationPath.size());
+    if (rest.empty())
+        return ("/");
+    if (rest[0] != '/')
+        return ("/" + rest);
+    return (rest);
+}
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
-void requestGet(Client *client)
+void requestGet(Client *client, const LocationConfig &loc)
 {
     std::string path = client->getRequest().path;
-    
-    std::string filePath = "./html" + path;
-    
+
+    std::string filePath = loc.root + path;
+
     ///////////////////////////////////
-    if (!isPathWithinRoot(filePath, "./html"))
+    char realBoundary[PATH_MAX];
+    if (realpath((loc.root + loc.path).c_str(), realBoundary) == NULL)
+    {
+        // la propia location no tiene una carpeta real detras (config mal hecha
+        // o location "virtual"). nginx trata esto igual que "archivo no encontrado".
+        std::string body = "Not Found";
+        client->setResponseHeaders(createHeadersLength("text/plain", "404", body.size(), client->getKeepAlive()));
+        client->setBuffer(body.c_str(), body.size());
+        client->setFileOffset(0);
+        client->setIsRegularFile(true);
+        client->setFileSize(body.size());
+        client->setFileFd(-1);
+        return ;
+    }
+    if (!isPathWithinRoot(filePath, loc.root + loc.path))
 	{
 		std::string body = "Forbidden";
 		client->setResponseHeaders(createHeadersLength("text/plain", "403 Forbidden", body.size(), client->getKeepAlive()));
@@ -256,21 +285,63 @@ void requestGet(Client *client)
 		return ;
 	}
     //////////////////////////////////
-    
-    std::string typeFile;
-    if (path.find(".html") != std::string::npos)
-        typeFile = "text/html";
-    else if (path.find(".jpg") != std::string::npos)
-        typeFile = "image/jpeg";
-    else 
-        typeFile = "text/plain";
-    int file = open(filePath.c_str(), O_RDONLY);
+    static std::map<std::string, std::string> typeFileDict;
+	if (typeFileDict.empty())
+	{
+		typeFileDict[".html"] = "text/html";
+		typeFileDict[".css"]  = "text/css";
+		typeFileDict[".js"]   = "application/javascript";
+		
+		//image
+		typeFileDict[".jpg"]  = "image/jpeg";
+		typeFileDict[".png"]  = "image/png";
+		typeFileDict[".ico"]  = "image/x-icon";
+		typeFileDict[".gif"]  = "image/gif";
+		typeFileDict[".bmp"]  = "image/bmp";
+		
+		// video
+		typeFileDict[".mp4"] = "video/mp4";
+		typeFileDict[".webm"] = "video/webm";
+		typeFileDict[".ogv"]  = "video/ogg";
+		typeFileDict[".mov"]  = "video/quicktime";
+		typeFileDict[".avi"]  = "video/x-msvideo";
+		typeFileDict[".m4v"] = "video/x-m4v";
+		typeFileDict[".qt"]  = "video/quicktime";
+		
+		typeFileDict[".mkv"] = "video/x-matroska";
+
+		// audio
+		typeFileDict[".mp3"]  = "audio/mpeg";
+		typeFileDict[".wav"]  = "audio/wav";
+		typeFileDict[".ogg"]  = "audio/ogg";
+		typeFileDict[".m4a"]  = "audio/mp4";
+		typeFileDict[".flac"] = "audio/flac";
+		// pendiente: mas tipos segun se necesiten
+	}
+	std::string typeFile = "text/plain"; // default si no hay match
+	size_t dot = path.find_last_of('.');
+	if (dot != std::string::npos)
+	{
+		std::string ext = path.substr(dot);
+		std::map<std::string, std::string>::iterator it = typeFileDict.find(ext);
+		if (it != typeFileDict.end())
+		    typeFile = it->second;
+	}
+	/////////////////
+	int file = open(filePath.c_str(), O_RDONLY);
     struct stat st;
     if (file < 0)
-    { 
+    {
         close(file); // medidas extra de precaucion, por si acaso
 
-		std::string errorPagePath = "./html/404.html"; // el archivo de 404
+		std::string errorPagePath = loc.root + "/404.html"; // fallback si el server no define un error_page para 404
+		const ServerConfig *server = client->getServerConfig();
+		if (server != NULL)
+		{
+			std::map<int, std::string>::const_iterator errIt = server->errorPages.find(404);
+			if (errIt != server->errorPages.end())
+				errorPagePath = errIt->second;
+		}
 		struct stat errSt;
 		memset(&errSt, 0, sizeof(errSt)); // inicializarlo en cero para que luego no pille valore basura
 
@@ -315,7 +386,7 @@ void requestGet(Client *client)
 		std::string indexPath = filePath;
 		if (indexPath[indexPath.size() - 1] != '/') // estas dos lineas creoq ue se pueden queitar porque el if anterior "fixea" que el cliente nos meta un directorio sin / al final, no lo hago porque tengo miedo, y sigue funcionando bien aun con el dead code
 		    indexPath += "/";						// estas dos lineas creoq ue se pueden queitar porque el if anterior "fixea" que el cliente nos meta un directorio sin / al final, no lo hago porque tengo miedo, y sigue funcionando bien aun con el dead code
-		indexPath += "index.html";
+		indexPath += loc.index;
 
 		int indexFd = open(indexPath.c_str(), O_RDONLY);
 		if (indexFd >= 0)
@@ -327,7 +398,7 @@ void requestGet(Client *client)
 		    return;
 		}
 
-		if (AUTOINDEX_ENABLED)
+		if (loc.autoindex)
 		{
 		    std::string listing = generateAutoindexHTML(filePath, path);
 		    int listingFd = writeAutoindexToTempFile(listing);
@@ -353,13 +424,21 @@ void requestGet(Client *client)
     client->setFileFd(file);
 }
 
-void requestPost(Client *client)
+void requestPost(Client *client, const LocationConfig &loc)
 {
     std::string path = client->getRequest().path;
 
-    std::string filePath = "./html" + path;
+    std::string targetRoot = loc.root;
+    std::string targetPath = path;
+    if (!loc.uploadStore.empty())
+    {
+        targetRoot = loc.uploadStore;
+        targetPath = stripLocationPrefix(path, loc.path);
+    }
+    std::string filePath = targetRoot + targetPath;
+
     client->setFileFd(-1);
-    if (!isCreateTargetWithinRoot(filePath, "./html")) //cambiado de path.find("../")
+    if (!isCreateTargetWithinRoot(filePath, targetRoot)) //cambiado de path.find("../")
     {
         std::string body = "Forbidden";
         client->setResponseHeaders(createHeadersLength("text/plain", "403 Forbidden", body.size(), client->getKeepAlive()));
@@ -402,15 +481,21 @@ void requestPost(Client *client)
     client->setFileSize(body.size());
 }
 
-void requestDelete(Client *client)
+void requestDelete(Client *client, const LocationConfig &loc)
 {
     std::string path = client->getRequest().path;
-    std::string filePath = "./html" + path;
+    std::string filePath = loc.root + path;
     std::string body;
     std::string status;
 
     client->setFileFd(-1);
-    if (!isPathWithinRoot(filePath, "./html")) //cambiado de path.find("../")
+    char realBoundary[PATH_MAX];
+    if (realpath((loc.root + loc.path).c_str(), realBoundary) == NULL)
+    {
+        body = "Not Found";
+        status = "404";
+    }
+    else if (!isPathWithinRoot(filePath, loc.root + loc.path)) //cambiado de path.find("../")
     {
         body = "Forbidden";
         status = "403 Forbidden";
@@ -446,17 +531,70 @@ void requestDelete(Client *client)
     client->setFileSize(body.size());
 }
 
-void requestNotAllowed(Client *client)
+//el estandar de http dice que cuando es method not allowed en la cabecera de response
+//hay que listar los metodos si permitidos por eso armamos el header asi. 
+void requestNotAllowed(Client *client, const LocationConfig &loc)
 {
-    std::string body = "405 Method Not Allowed"; 
-    std::string status = "405";
+    std::string body = "405 Method Not Allowed";
 
-    client->setResponseHeaders(createHeadersLength("text/plain", status, body.size(), client->getKeepAlive()));
+    std::string allowList;
+    for (size_t i = 0; i < loc.methods.size(); ++i)
+    {
+        if (i > 0)
+            allowList += ", ";
+        allowList += loc.methods[i];
+    }
+
+    std::stringstream headers;
+    headers << "HTTP/1.1 405 Method Not Allowed\r\n"
+            << "Content-Type: text/plain\r\n"
+            << "Content-Length: " << body.size() << "\r\n"
+            << "Allow: " << allowList << "\r\n"//solo por esto esta hardcodeado.
+            << (client->getKeepAlive() ? "Connection: keep-alive\r\n" : "Connection: close\r\n")
+            << "\r\n";
+
+    client->setResponseHeaders(headers.str());
     client->setBuffer(body.c_str(),body.size());
     client->setFileOffset(0);
     client->setIsRegularFile(true);
     client->setFileSize(body.size());
 }
+///////////////////////
+// 501: el metodo no es uno de los que este servidor sabe manejar EN NINGUN sitio
+// (distinto de 405, que es "existe, pero no en esta location")
+static bool isKnownMethod(const std::string &method)
+{
+    return (method == "GET" || method == "POST" || method == "DELETE");
+}
+
+
+void requestNotImplemented(Client *client)
+{
+    std::string body = "501 Not Implemented";
+    client->setResponseHeaders(createHeadersLength("text/plain", "501 Not Implemented", body.size(), client->getKeepAlive()));
+    client->setBuffer(body.c_str(), body.size());
+    client->setFileOffset(0);
+    client->setIsRegularFile(true);
+    client->setFileSize(body.size());
+}
+///////////////////////
+
+static void sendRedirect(Client *client, const std::string &code, const std::string &redirectPath)
+{
+    std::stringstream ss;
+    ss << "HTTP/1.1 " << code << " " << statusMessage(code) << "\r\n";
+    ss << "Location: " << redirectPath << "\r\n";
+    ss << "Content-Length: 0\r\n";
+    ss << (client->getKeepAlive() ? "Connection: keep-alive\r\n" : "Connection: close\r\n");
+    ss << "\r\n";
+
+    client->setResponseHeaders(ss.str());
+    client->setBuffer("", 0);
+    client->setFileFd(-1);
+    client->setFileSize(0);
+    client->setFileOffset(0);
+}
+
 
 void Procesrequest(Client * client)
 {
@@ -482,25 +620,63 @@ void Procesrequest(Client * client)
         client->setFileSize(body.size());
         return;
     }
-    
+
     /////////////////////////////////////////////////////////////////////////////////
     /////////////////////////////////////////////////////////////////////////////////
     //	SE PUEDE BORRAR E N EL FUTURO
-    
-    std::cout << "=== REQUEST COMPLETE ===\n"
+
+    /* std::cout << "=== REQUEST COMPLETE ===\n"
           << "type: " << client->getRequest().type << "\n"
           << "path: " << client->getRequest().path << "\n"
           << "body: [" << client->getRequest().body << "]\n"
-          << "=========================\n";
+          << "=========================\n"; */
 
 	////////////////////////////////////////////////////////////////////////////////
 	////////////////////////////////////////////////////////////////////////////////
 
-    if (client->getRequest().type == "GET")
-        return (requestGet(client));
-    else if (client->getRequest().type == "POST")
-        return (requestPost(client));
-    else if (client->getRequest().type == "DELETE")
-        return (requestDelete(client));
-    requestNotAllowed(client);
+    const ServerConfig *server = client->getServerConfig();
+    const LocationConfig *loc = (server != NULL) ? findLocation(*server, client->getRequest().path) : NULL;
+
+    if (loc == NULL)
+    {
+        std::string body = "Not Found";
+        client->setResponseHeaders(createHeadersLength("text/plain", "404 Not Found", body.size(), client->getKeepAlive()));
+        client->setBuffer(body.c_str(), body.size());
+        client->setFileOffset(0);
+        client->setIsRegularFile(true);
+        client->setFileSize(body.size());
+        client->setFileFd(-1);
+        return;
+    }
+
+    if (!loc->redirectionPage.empty())
+    {
+        sendRedirect(client, loc->redirectionCode, loc->redirectionPage);
+        return;
+    }
+
+    const std::string &method = client->getRequest().type;
+    /////
+    if (!isKnownMethod(method))
+	    return (requestNotImplemented(client));
+    /////
+    bool methodAllowed = false;
+    for (size_t i = 0; i < loc->methods.size(); ++i)
+    {
+        if (loc->methods[i] == method)
+        {
+            methodAllowed = true;
+            break;
+        }
+    }
+    if (!methodAllowed)
+        return (requestNotAllowed(client, *loc));
+
+    if (method == "GET")
+        return (requestGet(client, *loc));
+    else if (method == "POST")
+        return (requestPost(client, *loc));
+    else if (method == "DELETE")
+        return (requestDelete(client, *loc));
+    requestNotAllowed(client, *loc);
 }

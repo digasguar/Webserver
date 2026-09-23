@@ -1,10 +1,8 @@
 #include "../includes/Client.hpp"
+#include "../includes/ConfigTypes.hpp"
 #include <cctype>
 
-#define MAX_BODY_SIZE 10000000  // 10MB, como limite de body, esto iria en el archivo de configuracion
-
-
-static std::string toLower(const std::string &s)
+std::string toLower(const std::string &s)
 {
     std::string result = s;
     for (size_t i = 0; i < result.size(); ++i)
@@ -36,7 +34,7 @@ static std::string percentDecode(const std::string &s)
 
 
 
-Client::Client(int socket): _socket(socket)
+Client::Client(int socket, const ServerConfig *serverConfig): _socket(socket), _serverConfig(serverConfig)
 {
     this->_file_fd = -1;
     this->_headerOffset = 0;
@@ -44,7 +42,7 @@ Client::Client(int socket): _socket(socket)
     this->_fileSize = 0;
     this->_isRegularFile = true;
     this->_parseState = LINE;
-    this->_keep_alive = true; 
+    this->_keep_alive = true;
     this->_parseError = 0;
     this->_last_activity = std::time(NULL);
 };
@@ -65,7 +63,7 @@ void Client::setRecuestBody(const std::string& body){this->_request.body = body;
 
 void Client::setResponseHeaders(const std::string& headers){this->_responseHeaders = headers;}
 
-void Client::setFileFd(const int fd){this->_file_fd = fd;} 
+void Client::setFileFd(const int fd){this->_file_fd = fd;}
 
 void Client::setHeaderOffset(const size_t offset){this->_headerOffset = offset;}
 
@@ -103,6 +101,8 @@ int Client::getFileFd(){return this->_file_fd;}
 std::string Client::getResponseHeaders(){return this->_responseHeaders;}
 
 bool Client::getKeepAlive(){return (this->_keep_alive);}
+
+const ServerConfig *Client::getServerConfig() const {return (this->_serverConfig);}
 
 bool Client::isRequestComplete()
 {
@@ -194,8 +194,9 @@ void Client::parseRequest()
     if (_parseState == BODY)
     {
         size_t expectedLen = std::atol(this->_request.headers["content-length"].c_str());
+        size_t maxBodySize = (this->_serverConfig != NULL) ? this->_serverConfig->clientMaxBodySize : MAX_BODY_SIZE;
 
-		if (expectedLen > MAX_BODY_SIZE)
+		if (expectedLen > maxBodySize)
 		{
 			setParseError(413);
 			_parseState = DONE;
@@ -211,7 +212,7 @@ void Client::parseRequest()
 
         _parseState = DONE;
     }
-    
+
     if (_parseState == BODY_CHUNKED)
 {
     while (true)
@@ -233,6 +234,17 @@ void Client::parseRequest()
             setRecuestBody(_chunkedBody);
             _parseState = DONE;
             break;
+        }
+//para evitar riesgo de overflow al ser sin signo si el cliente manda un chunksize muy grande
+//mas _chunkedbody podria dar la vuelta y pasar < maxBodySize. 
+        {
+            size_t maxBodySize = (this->_serverConfig != NULL) ? this->_serverConfig->clientMaxBodySize : MAX_BODY_SIZE;
+            if (chunkSize > maxBodySize || _chunkedBody.size() > maxBodySize - chunkSize)
+            {
+                setParseError(413);
+                _parseState = DONE;
+                return;
+            }
         }
 
         if (recv_buffer.size() < pos + 2 + chunkSize + 2)
