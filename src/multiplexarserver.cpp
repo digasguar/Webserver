@@ -139,7 +139,7 @@ void prepare_socket(int fd, const std::string &host, int port)
     if (status != 0)
     {
         std::cout << "FAILURE GETADDRINFO: " << gai_strerror(status) << std::endl;
-        exit(EXIT_FAILURE);
+        std::exit(EXIT_FAILURE);
     }
 
 	////////////////////////
@@ -152,7 +152,7 @@ void prepare_socket(int fd, const std::string &host, int port)
     {
         std::cout << "FAILURE BIND" << std::endl;
         freeaddrinfo(res);
-        exit(EXIT_FAILURE);
+        std::exit(EXIT_FAILURE);
     }
     freeaddrinfo(res);
 
@@ -160,7 +160,7 @@ void prepare_socket(int fd, const std::string &host, int port)
     if (listen(fd, SOMAXCONN) < 0)
     {
         std::cout << "FAILURE LISTEN" << std::endl;
-        exit(EXIT_FAILURE);
+        std::exit(EXIT_FAILURE);
     }
 }
 
@@ -210,7 +210,7 @@ static std::string resolveConfigPath(int argc, char **argv)
     if (argc > 2)
     {
         std::cerr << "Usage: ./webserv [config_file]" << std::endl;
-        exit(EXIT_FAILURE);
+        std::exit(EXIT_FAILURE);
     }
     if (argc == 2)
         return (std::string(argv[1]));
@@ -223,7 +223,7 @@ static Config loadConfig(const std::string &configPath)
     if (!tokenizeConfigFile(configPath, tokens))
     {
         std::cerr << "Error: could not open config file '" << configPath << "'" << std::endl;
-        exit(EXIT_FAILURE);
+        std::exit(EXIT_FAILURE);
     }
 
     Config config;
@@ -231,7 +231,7 @@ static Config loadConfig(const std::string &configPath)
     if (!parseConfig(tokens, config, parseError))
     {
         std::cerr << "Error: " << parseError << std::endl;
-        exit(EXIT_FAILURE);
+        std::exit(EXIT_FAILURE);
     }
     return (config);
 }
@@ -247,7 +247,7 @@ static std::map<int, const ServerConfig*> setupListenSockets(const Config &confi
         if (fd == -1)
         {
             std::cout << "FAILURE CREATE SOCKET" << std::endl;
-            exit(EXIT_FAILURE);
+            std::exit(EXIT_FAILURE);
         }
         fcntl(fd, F_SETFL, O_NONBLOCK);
         prepare_socket(fd, config[i].host, config[i].port);
@@ -258,7 +258,7 @@ static std::map<int, const ServerConfig*> setupListenSockets(const Config &confi
         if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &event) == -1)
         {
             perror("ERROR epoll_ctl");
-            exit(EXIT_FAILURE);
+            std::exit(EXIT_FAILURE);
         }
         listenFds[fd] = &config[i];
     }
@@ -275,7 +275,7 @@ int main(int argc, char **argv)
     signal(SIGINT, signalHandler);
 
     // si se hace send() a un socket que ya cerró la conexion el kernel devuelve SIGPIPE que mata todo el proceso.
-
+    
 
     std::string configPath = resolveConfigPath(argc, argv);
     Config config = loadConfig(configPath);
@@ -284,7 +284,7 @@ int main(int argc, char **argv)
     if (epoll_fd == -1)
     {
         std::cout << "FAILURE EPOLL\n";
-        exit(EXIT_FAILURE);
+        std::exit(EXIT_FAILURE);
     }
 
     std::map<int, const ServerConfig*> listenFds = setupListenSockets(config, epoll_fd);
@@ -299,7 +299,7 @@ int main(int argc, char **argv)
         if (n == -1)
         {
             perror("epoll wait");
-            exit(EXIT_FAILURE);
+            std::exit(EXIT_FAILURE);
         }
         checkClientTimeut(clients, epoll_fd);
         void (*functions[])(std::map<int, Client> &, int, int) =

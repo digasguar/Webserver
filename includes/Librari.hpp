@@ -20,6 +20,7 @@ struct ServerConfig;
 #include <fcntl.h>
 #include <signal.h>
 #include <ctime>
+#include <exception>
 
 
 void Procesrequest(Client * client);
