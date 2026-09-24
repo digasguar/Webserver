@@ -57,6 +57,8 @@ void Client::setRequestType(const std::string& type) {this->_request.type = type
 
 void Client::setRequestPath(const std::string& path){this->_request.path = path;}
 
+void Client::setRequestQuery(const std::string& query){this->_request.query = query;}
+
 void Client::setRequestVersion(const std::string& version){this->_request.version = version;}
 
 void Client::setRecuestBody(const std::string& body){this->_request.body = body;}
@@ -128,6 +130,18 @@ void Client::parseRequest()
         std::string type, path, version;
         iss >> type >> path >> version;
 
+		//////////////////////
+		//el split para el query
+		std::string query;
+		size_t qpos = path.find('?');
+		if (qpos != std::string::npos)
+		{
+			query = path.substr(qpos + 1);
+			path = path.substr(0, qpos);
+		}
+		//////////////////////
+
+		
 		///////////
 		//true decoded path
 		path = percentDecode(path);
@@ -135,6 +149,7 @@ void Client::parseRequest()
 
         setRequestType(type);
         setRequestPath(path);
+        setRequestQuery(query);
         setRequestVersion(version);
 
         _parseState = HEADERS;
