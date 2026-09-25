@@ -282,6 +282,7 @@ void Client::resetRequest()
     this->recv_buffer.clear();
     this->_request.body.clear();
     this->_request.path.clear();
+    this->_request.query.clear();
     this->_request.type.clear();
     this->_request.version.clear();
     this->_request.headers.clear();
