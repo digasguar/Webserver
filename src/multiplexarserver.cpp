@@ -217,23 +217,22 @@ static std::string resolveConfigPath(int argc, char **argv)
     return (std::string(DEFAULT_CONFIG_PATH));
 }
 
-static Config loadConfig(const std::string &configPath)
+static bool loadConfig(const std::string &configPath, Config &config)
 {
     std::vector<std::string> tokens;
     if (!tokenizeConfigFile(configPath, tokens))
     {
         std::cerr << "Error: could not open config file '" << configPath << "'" << std::endl;
-        exit(EXIT_FAILURE);
+        return (0);
     }
 
-    Config config;
     std::string parseError;
     if (!parseConfig(tokens, config, parseError))
     {
         std::cerr << "Error: " << parseError << std::endl;
-        exit(EXIT_FAILURE);
+        return (0);
     }
-    return (config);
+    return (1);
 }
 
 // crea y bindea un socket de escucha por cada ServerConfig, todos bajo el mismo epoll_fd
@@ -278,8 +277,9 @@ int main(int argc, char **argv)
 
 
     std::string configPath = resolveConfigPath(argc, argv);
-    Config config = loadConfig(configPath);
-
+    Config config;
+    if (!loadConfig(configPath, config))
+        return(1);
     int epoll_fd = epoll_create(42);
     if (epoll_fd == -1)
     {
