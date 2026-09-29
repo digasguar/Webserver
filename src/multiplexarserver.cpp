@@ -4,9 +4,12 @@
 #include "../includes/ConfigTypes.hpp"
 #include "../includes/ConfigTokenizer.hpp"
 #include "../includes/ConfigParser.hpp"
+#include "../includes/CgiRunner.hpp"
+
 #include <cstring>
 
 #define DEFAULT_CONFIG_PATH "./config/default.conf"
+
 volatile sig_atomic_t running = 1;
 
 void createClient(std::map<int, Client> &clients, int fd, int epoll_fd, const std::map<int, const ServerConfig*> &listenFds)
@@ -37,7 +40,7 @@ void createClient(std::map<int, Client> &clients, int fd, int epoll_fd, const st
     }
 }
 
-void reciveRequest(std::map<int, Client> &clients, int current_fd, int epoll_fd)
+void reciveRequest(std::map<int, Client> &clients, int current_fd, int epoll_fd, std::map<int, CgiProcess> &cgiByReadFd, std::map<int, int> &writeFdToReadFd)
 {
     std::map<int, Client>::iterator it = clients.find(current_fd);
     if (it == clients.end())
@@ -61,7 +64,11 @@ void reciveRequest(std::map<int, Client> &clients, int current_fd, int epoll_fd)
     client.parseRequest();
     if (!client.isRequestComplete())
     	return ;
-    Procesrequest(&client);
+    
+    bool responseReady = Procesrequest(&client, epoll_fd, cgiByReadFd, writeFdToReadFd);
+    if (!responseReady)
+        return ; // un CGI se ha hecho cargo
+    
     epoll_event response_event;
     response_event.data.fd = current_fd;
     response_event.events = EPOLLOUT;
@@ -291,6 +298,9 @@ int main(int argc, char **argv)
 
     epoll_event events[1024];
     std::map<int, Client> clients;
+    std::map<int, CgiProcess> cgiByReadFd;
+	std::map<int, int> writeFdToReadFd;
+	
     while (running)
     {
         int n = epoll_wait(epoll_fd, events, 1024, 1000);
@@ -306,20 +316,34 @@ int main(int argc, char **argv)
         {
             dummy,
             dummy, // el indice 1 (nueva conexion) se maneja aparte con createClient, porque necesita listenFds
-            reciveRequest,
+            dummy, // deprecated -> reciveRequest ya no tiene la misma signature
             sendResponse,
             close_conection
         };
         for (int i = 0; i < n; i++)
         {
             int current_fd = events[i].data.fd;
-            size_t index = calculate_index(current_fd, listenFds, events[i]);
-            if (index == 1)
-                createClient(clients, current_fd, epoll_fd, listenFds);
-            else
-                functions[index](clients, current_fd, epoll_fd);
-        }
-    }
+            
+            if (cgiByReadFd.find(current_fd) != cgiByReadFd.end())
+			{
+				handleCgiRead(clients, cgiByReadFd, writeFdToReadFd, current_fd, epoll_fd);
+				continue;
+			}
+			if (writeFdToReadFd.find(current_fd) != writeFdToReadFd.end())
+			{
+				handleCgiWrite(clients, cgiByReadFd, writeFdToReadFd, current_fd, epoll_fd);
+				continue;
+			}
+
+			size_t index = calculate_index(current_fd, listenFds, events[i]);
+			if (index == 1)
+				createClient(clients, current_fd, epoll_fd, listenFds);
+			else if (index == 2)
+				reciveRequest(clients, current_fd, epoll_fd, cgiByReadFd, writeFdToReadFd);
+			else
+				functions[index](clients, current_fd, epoll_fd);
+		}
+	}
     close(epoll_fd);
     for (std::map<int, const ServerConfig*>::iterator it = listenFds.begin(); it != listenFds.end(); ++it)
         close(it->first);
