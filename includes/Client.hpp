@@ -59,6 +59,8 @@ private:
     struct epoll_event _ep;
 
     time_t _last_activity;
+    
+    unsigned long _serial;
 
     const ServerConfig *_serverConfig; // a que ServerConfig pertenece esta conexion, para el lookup de location
 
@@ -103,6 +105,8 @@ public:
 
     void updateActivity();
     time_t getLastActivity() const;
+    
+    unsigned long getSerial() const;
 
     Client(int socket, const ServerConfig *serverConfig);
     ~Client();
