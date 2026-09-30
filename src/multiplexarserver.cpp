@@ -212,9 +212,14 @@ static std::string resolveConfigPath(int argc, char **argv)
         std::cerr << "Usage: ./webserv [config_file]" << std::endl;
         exit(EXIT_FAILURE);
     }
-    if (argc == 2)
-        return (std::string(argv[1]));
-    return (std::string(DEFAULT_CONFIG_PATH));
+    if (argc == 1)
+        return (std::string(DEFAULT_CONFIG_PATH));
+    if (!check_extension(argv[1]))
+    {
+        std::cerr << "Error: config file extension must be '.conf'" << std::endl;
+        exit(EXIT_FAILURE);
+    }
+    return (std::string(argv[1]));
 }
 
 static bool loadConfig(const std::string &configPath, Config &config)
