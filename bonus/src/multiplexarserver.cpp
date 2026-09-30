@@ -40,7 +40,7 @@ void createClient(std::map<int, Client> &clients, int fd, int epoll_fd, const st
     }
 }
 
-void reciveRequest(std::map<int, Client> &clients, int current_fd, int epoll_fd, std::map<int, CgiProcess> &cgiByReadFd, std::map<int, int> &writeFdToReadFd)
+void reciveRequest(std::map<int, Client> &clients, int current_fd, int epoll_fd, std::map<int, CgiProcess> &cgiByReadFd, std::map<int, int> &writeFdToReadFd, CookiesManager & cookieManager)
 {
     std::map<int, Client>::iterator it = clients.find(current_fd);
     if (it == clients.end())
@@ -65,7 +65,7 @@ void reciveRequest(std::map<int, Client> &clients, int current_fd, int epoll_fd,
     if (!client.isRequestComplete())
     	return ;
     
-    bool responseReady = Procesrequest(&client, epoll_fd, cgiByReadFd, writeFdToReadFd);
+    bool responseReady = Procesrequest(&client, epoll_fd, cgiByReadFd, writeFdToReadFd, cookieManager);
     if (!responseReady)
         return ; // un CGI se ha hecho cargo
     
@@ -300,7 +300,7 @@ int main(int argc, char **argv)
     std::map<int, Client> clients;
     std::map<int, CgiProcess> cgiByReadFd;
 	std::map<int, int> writeFdToReadFd;
-	
+	CookiesManager cookieManager = CookiesManager();
     while (running)
     {
         int n = epoll_wait(epoll_fd, events, 1024, 1000);
@@ -339,7 +339,7 @@ int main(int argc, char **argv)
 			if (index == 1)
 				createClient(clients, current_fd, epoll_fd, listenFds);
 			else if (index == 2)
-				reciveRequest(clients, current_fd, epoll_fd, cgiByReadFd, writeFdToReadFd);
+				reciveRequest(clients, current_fd, epoll_fd, cgiByReadFd, writeFdToReadFd, cookieManager);
 			else
 				functions[index](clients, current_fd, epoll_fd);
 		}

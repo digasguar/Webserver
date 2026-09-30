@@ -1,4 +1,4 @@
-#include "includes/Cookie.hpp"
+#include "../includes/Cookie.hpp"
 
 Cookie::Cookie(std::string name): _name(name){this->_dataExpire = time(NULL);}
 

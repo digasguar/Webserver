@@ -297,3 +297,17 @@ void Client::resetRequest()
 void Client::updateActivity(){this->_last_activity = time(NULL);}
 
 time_t Client::getLastActivity() const {return (this->_last_activity);}
+
+bool Client::hasValidSesion(CookiesManager &cookieManager)
+{
+    std::map<std::string, std::string>::iterator it = this->_request.headers.find("cookie");
+    
+    if (it == this->_request.headers.end())
+        return (false);
+    std::string hash = extractCookie(it->second);
+
+    if (hash.empty())
+        return (false);
+    
+    return cookieManager.isValidSesion(hash);
+}

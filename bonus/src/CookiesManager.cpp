@@ -1,4 +1,4 @@
-#include "includes/CookiesManager.hpp"
+#include "../includes/CookiesManager.hpp"
 
 CookiesManager::CookiesManager(){}
 

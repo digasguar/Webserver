@@ -1,6 +1,6 @@
 #ifndef COOKIESMANAGER_HPP
 # define COOKIESMANAGER_HPP
-#include "Cookie.hpp"
+#include "../includes/Cookie.hpp"
 #include "map"
 #include <sstream>
 #include <cstdlib> 

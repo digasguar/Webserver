@@ -3,9 +3,11 @@
 #include <string>
 #include "Librari.hpp"
 #include "HttpRequest.hpp"
-#include "CookiesManager.hpp"
+#define MAX_BODY_SIZE 1024 * 1024 * 10  // 10MB, fallback defensivo si _serverConfig fuera NULL (no deberia pasar nunca)
+#define CLIENT_TIMEOUT 120 //tiempo para el timeut por inactividad (igual que el keepalive_timeout por defecto de nginx)
 
-#define CLIENT_TIMEOUT 5 //tiempo para el timeut por inactividad 
+struct ServerConfig;
+
 
 enum ClientState
 {
@@ -31,9 +33,9 @@ private:
     HttpRequesr _request;//la peticion parseada de cliente
 
     ClientState _state; //estado del cliente
-    
+
     ParseState _parseState;
-    
+
     int _parseError;
 
     std::string _responseHeaders; //los headers de la respuesta
@@ -42,7 +44,7 @@ private:
 
     bool _isRegularFile; //para el urandom y pipes
 
-    off_t _fileSize; // cuanto pesa el archivo 
+    off_t _fileSize; // cuanto pesa el archivo
 
     char _buffer[4096]; // el contenido del archivo
 
@@ -57,6 +59,8 @@ private:
     struct epoll_event _ep;
 
     time_t _last_activity;
+
+    const ServerConfig *_serverConfig; // a que ServerConfig pertenece esta conexion, para el lookup de location
 
 public:
     std::string recv_buffer;
@@ -87,19 +91,25 @@ public:
     std::string getResponseHeaders();
     bool getKeepAlive();
     struct epoll_event getEpollEvent();
+    const ServerConfig *getServerConfig() const;
 
     void resetRequest();
-    void parseRequest(CookiesManager &cookieManager);
+    void parseRequest();
     bool isRequestComplete();
     void setParseError(int code);
     int  getParseError();
+    
+    void setRequestQuery(const std::string &query);
 
     void updateActivity();
     time_t getLastActivity() const;
 
     bool hasValidSesion(CookiesManager &cookieManager);
-    
-    Client(int socket);
+
+    Client(int socket, const ServerConfig *serverConfig);
     ~Client();
 };
+
+std::string toLower(const std::string &s);
+
 #endif
