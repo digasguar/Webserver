@@ -1,0 +1,707 @@
+#include "../includes/Librari.hpp"
+#include "../includes/Client.hpp"
+#include "../includes/ConfigTypes.hpp"
+#include "../includes/ConfigLookup.hpp"
+#include "../includes/CgiRunner.hpp"
+#include "../includes/CookiesManager.hpp"
+
+#include <cstring>
+#include <dirent.h>
+#include <vector>
+#include <algorithm>
+#include <cctype>
+
+std::string createHeadersLength(const std::string type, const std::string status, size_t length, bool keep_alive)
+{
+    std::stringstream ss;
+    ss << length;
+
+    if (!keep_alive)
+        return ("HTTP/1.1 " + status + "\r\n"
+            "Content-Type: " + type + "\r\n"
+            "Content-Length: " + ss.str() + "\r\n"
+            "Connection: close\r\n"
+            "\r\n");
+    return ("HTTP/1.1 " + status + "\r\n"
+            "Content-Type: " + type + "\r\n"
+            "Content-Length: " + ss.str() + "\r\n"
+            "Connection: keep-alive\r\n"
+            "\r\n");
+}
+
+std::string createChunkedHeader(const std::string type, const std::string status, bool keep_alive)
+{
+    if (!keep_alive)
+        return ("HTTP/1.1 " + status + "\r\n"
+            "Content-Type: " + type + "\r\n"
+            "Transfer-Encoding: chunked" + "\r\n"
+            "Connection: close\r\n"
+            "\r\n");
+    return ("HTTP/1.1 " + status + "\r\n"
+            "Content-Type: " + type + "\r\n"
+            "Transfer-Encoding: chunked" + "\r\n"
+            "Connection: keep-alive\r\n"
+            "\r\n");
+}
+
+std::string createRedirectHeader(const std::string &location, bool keep_alive)
+{
+    if (!keep_alive)
+        return ("HTTP/1.1 301 Moved Permanently\r\n"
+            "Location: " + location + "\r\n"
+            "Content-Length: 0\r\n"
+            "Connection: close\r\n"
+            "\r\n");
+    return ("HTTP/1.1 301 Moved Permanently\r\n"
+            "Location: " + location + "\r\n"
+            "Content-Length: 0\r\n"
+            "Connection: keep-alive\r\n"
+            "\r\n");
+}
+
+std::string createAuthRedirect(const std::string &location, bool keep_alive)
+{
+    if (!keep_alive)
+        return ("HTTP/1.1 303 See Other\r\n"
+            "Location: " + location + "\r\n"
+            "Content-Length: 0\r\n"
+            "Connection: close\r\n"
+            "\r\n");
+    return ("HTTP/1.1 303 See Other\r\n"
+            "Location: " + location + "\r\n"
+            "Content-Length: 0\r\n"
+            "Connection: keep-alive\r\n"
+            "\r\n");
+}
+
+std::string createAuthRedirectWithCookie(const std::string &location, const std::string &cookieValue, bool keep_alive)
+{
+    if (!keep_alive)
+        return ("HTTP/1.1 303 See Other\r\n"
+            "Location: " + location + "\r\n"
+            "Set-Cookie: " + cookieValue + "\r\n"
+            "Content-Length: 0\r\n"
+            "Connection: close\r\n"
+            "\r\n");
+    return ("HTTP/1.1 303 See Other\r\n"
+            "Location: " + location + "\r\n"
+            "Set-Cookie: " + cookieValue + "\r\n"
+            "Content-Length: 0\r\n"
+            "Connection: keep-alive\r\n"
+            "\r\n");
+}
+
+struct DirEntry
+{
+    std::string name;
+    bool isDir;
+};
+
+static bool compareDirEntries(const DirEntry &a, const DirEntry &b)
+{
+    if (a.isDir != b.isDir)
+        return (a.isDir);
+    return (a.name < b.name);
+}
+
+static std::string htmlEscape(const std::string &s)
+{
+    std::string out;
+    for (size_t i = 0; i < s.size(); ++i)
+    {
+        switch (s[i])
+        {
+            case '<': out += "&lt;"; break;
+            case '>': out += "&gt;"; break;
+            case '&': out += "&amp;"; break;
+            case '"': out += "&quot;"; break;
+            default: out += s[i];
+        }
+    }
+    return (out);
+}
+
+static std::string urlEncode(const std::string &s)
+{
+    static const char *hexDigits = "0123456789ABCDEF";
+    std::string out;
+    for (size_t i = 0; i < s.size(); ++i)
+    {
+        unsigned char c = s[i];
+        if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~')
+            out += c;
+        else
+        {
+            out += '%';
+            out += hexDigits[(c >> 4) & 0xF];
+            out += hexDigits[c & 0xF];
+        }
+    }
+    return (out);
+}
+
+std::string generateAutoindexHTML(const std::string &dirFsPath, const std::string &urlPath)
+{
+    std::vector<DirEntry> entries;
+
+    DIR *dir = opendir(dirFsPath.c_str());
+    if (dir)
+    {
+        struct dirent *entry;
+        while ((entry = readdir(dir)) != NULL)
+        {
+            std::string name = entry->d_name;
+            if (name == ".")
+                continue;
+
+            std::string fullPath = dirFsPath;
+            if (fullPath[fullPath.size() - 1] != '/')
+                fullPath += "/";
+            fullPath += name;
+
+            struct stat entrySt;
+            DirEntry de;
+            de.name = name;
+            de.isDir = (stat(fullPath.c_str(), &entrySt) == 0 && S_ISDIR(entrySt.st_mode));
+            entries.push_back(de);
+        }
+        closedir(dir);
+    }
+
+    std::sort(entries.begin(), entries.end(), compareDirEntries);
+
+    std::stringstream html;
+    html << "<html><head><title>Index of " << htmlEscape(urlPath) << "</title></head><body>";
+    html << "<h1>Index of " << htmlEscape(urlPath) << "</h1><ul>";
+    for (size_t i = 0; i < entries.size(); ++i)
+    {
+        std::string suffix = entries[i].isDir ? "/" : "";
+        html << "<li><a href=\"" << urlEncode(entries[i].name) << suffix << "\">"
+            << htmlEscape(entries[i].name) << suffix << "</a></li>";
+    }
+    html << "</ul></body></html>";
+    return (html.str());
+}
+
+int writeAutoindexToTempFile(const std::string &html)
+{
+    char tmpPath[] = "/tmp/webserv_autoindex_XXXXXX";
+    int fd = mkstemp(tmpPath);
+    if (fd < 0)
+        return (-1);
+
+    ssize_t written = write(fd, html.c_str(), html.size());
+    if (written < 0 || static_cast<size_t>(written) != html.size())
+    {
+        unlink(tmpPath);
+        close(fd);
+        return (-1);
+    }
+    unlink(tmpPath);
+    lseek(fd, 0, SEEK_SET);
+    return (fd);
+}
+
+static bool isPathWithinRoot(const std::string &fsPath, const std::string &root)
+{
+    char realRoot[PATH_MAX];
+    char realTarget[PATH_MAX];
+
+    if (realpath(root.c_str(), realRoot) == NULL)
+        return false;
+    if (realpath(fsPath.c_str(), realTarget) == NULL)
+        return true;
+
+    std::string realRootStr(realRoot);
+    std::string realTargetStr(realTarget);
+
+    if (realTargetStr == realRootStr)
+        return true;
+    if (realTargetStr.size() > realRootStr.size() &&
+        realTargetStr.compare(0, realRootStr.size(), realRootStr) == 0 &&
+        realTargetStr[realRootStr.size()] == '/')
+        return true;
+    return false;
+}
+
+static bool isCreateTargetWithinRoot(const std::string &fsPath, const std::string &root)
+{
+    size_t slash = fsPath.find_last_of('/');
+    std::string parentDir = (slash == std::string::npos) ? "." : fsPath.substr(0, slash);
+    std::string filename = (slash == std::string::npos) ? fsPath : fsPath.substr(slash + 1);
+
+    if (filename == ".." || filename == "." || filename.empty())
+        return false;
+
+    char realRoot[PATH_MAX];
+    char realParent[PATH_MAX];
+
+    if (realpath(root.c_str(), realRoot) == NULL)
+        return false;
+    if (realpath(parentDir.c_str(), realParent) == NULL)
+        return false;
+
+    std::string realRootStr(realRoot);
+    std::string realParentStr(realParent);
+
+    if (realParentStr == realRootStr)
+        return true;
+    if (realParentStr.size() > realRootStr.size() &&
+        realParentStr.compare(0, realRootStr.size(), realRootStr) == 0 &&
+        realParentStr[realRootStr.size()] == '/')
+        return true;
+    return false;
+}
+
+static std::string stripLocationPrefix(const std::string &path, const std::string &locationPath)
+{
+    if (locationPath == "/" || path.compare(0, locationPath.size(), locationPath) != 0)
+        return (path);
+
+    std::string rest = path.substr(locationPath.size());
+    if (rest.empty())
+        return ("/");
+    if (rest[0] != '/')
+        return ("/" + rest);
+    return (rest);
+}
+
+bool requestGet(Client *client, const LocationConfig &loc, int epoll_fd, std::map<int, CgiProcess> &cgiByReadFd, std::map<int, int> &writeFdToReadFd)
+{
+    std::string path = client->getRequest().path;
+
+    std::string filePath = loc.root + path;
+
+    char realBoundary[PATH_MAX];
+    if (realpath((loc.root + loc.path).c_str(), realBoundary) == NULL)
+    {
+        std::string body = "Not Found";
+        client->setResponseHeaders(createHeadersLength("text/plain", "404", body.size(), client->getKeepAlive()));
+        client->setBuffer(body.c_str(), body.size());
+        client->setFileOffset(0);
+        client->setIsRegularFile(true);
+        client->setFileSize(body.size());
+        client->setFileFd(-1);
+        return (true);
+    }
+    if (!isPathWithinRoot(filePath, loc.root + loc.path))
+    {
+        std::string body = "Forbidden";
+        client->setResponseHeaders(createHeadersLength("text/plain", "403 Forbidden", body.size(), client->getKeepAlive()));
+        client->setBuffer(body.c_str(), body.size());
+        client->setFileOffset(0);
+        client->setIsRegularFile(true);
+        client->setFileSize(body.size());
+        client->setFileFd(-1);
+        return (true);
+    }
+
+    static std::map<std::string, std::string> typeFileDict;
+    if (typeFileDict.empty())
+    {
+        typeFileDict[".html"] = "text/html";
+        typeFileDict[".css"]  = "text/css";
+        typeFileDict[".js"]   = "application/javascript";
+
+        typeFileDict[".jpg"]  = "image/jpeg";
+        typeFileDict[".png"]  = "image/png";
+        typeFileDict[".ico"]  = "image/x-icon";
+        typeFileDict[".gif"]  = "image/gif";
+        typeFileDict[".bmp"]  = "image/bmp";
+
+        typeFileDict[".mp4"]  = "video/mp4";
+        typeFileDict[".webm"] = "video/webm";
+        typeFileDict[".ogv"]  = "video/ogg";
+        typeFileDict[".mov"]  = "video/quicktime";
+        typeFileDict[".avi"]  = "video/x-msvideo";
+        typeFileDict[".m4v"]  = "video/x-m4v";
+        typeFileDict[".qt"]   = "video/quicktime";
+        typeFileDict[".mkv"]  = "video/x-matroska";
+
+        typeFileDict[".mp3"]  = "audio/mpeg";
+        typeFileDict[".wav"]  = "audio/wav";
+        typeFileDict[".ogg"]  = "audio/ogg";
+        typeFileDict[".m4a"]  = "audio/mp4";
+        typeFileDict[".flac"] = "audio/flac";
+    }
+    std::string typeFile = "text/plain";
+    size_t dot = path.find_last_of('.');
+    if (dot != std::string::npos)
+    {
+        std::string ext = path.substr(dot);
+        std::map<std::string, std::string>::iterator it = typeFileDict.find(ext);
+        if (it != typeFileDict.end())
+            typeFile = it->second;
+    }
+
+    int file = open(filePath.c_str(), O_RDONLY);
+    struct stat st;
+    if (file < 0)
+    {
+        std::string errorPagePath = loc.root + "/404.html";
+        const ServerConfig *server = client->getServerConfig();
+        if (server != NULL)
+        {
+            std::map<int, std::string>::const_iterator errIt = server->errorPages.find(404);
+            if (errIt != server->errorPages.end())
+                errorPagePath = errIt->second;
+        }
+        struct stat errSt;
+        memset(&errSt, 0, sizeof(errSt));
+
+        int errorfd = open(errorPagePath.c_str(), O_RDONLY);
+        if (errorfd >= 0 && stat(errorPagePath.c_str(), &errSt) == 0 && S_ISREG(errSt.st_mode))
+        {
+            client->setResponseHeaders(createHeadersLength("text/html", "404", errSt.st_size, client->getKeepAlive()));
+            client->setFileFd(errorfd);
+        }
+        else
+        {
+            if (errorfd >= 0)
+                close(errorfd);
+            std::string body = "Not Found";
+            client->setResponseHeaders(createHeadersLength("text/plain", "404", body.size(), client->getKeepAlive()));
+            client->setBuffer(body.c_str(), body.size());
+            client->setFileOffset(0);
+            client->setIsRegularFile(true);
+            client->setFileSize(body.size());
+            client->setFileFd(-1);
+        }
+        return (true);
+    }
+    stat(filePath.c_str(), &st);
+
+    if (S_ISDIR(st.st_mode))
+    {
+        close(file);
+
+        if (path[path.size() - 1] != '/')
+        {
+            client->setResponseHeaders(createRedirectHeader(path + "/", client->getKeepAlive()));
+            client->setBuffer("", 0);
+            client->setFileOffset(0);
+            client->setIsRegularFile(true);
+            client->setFileSize(0);
+            client->setFileFd(-1);
+            return (true);
+        }
+
+        std::string indexPath = filePath;
+        if (indexPath[indexPath.size() - 1] != '/')
+            indexPath += "/";
+        indexPath += loc.index;
+
+        int indexFd = open(indexPath.c_str(), O_RDONLY);
+        if (indexFd >= 0)
+        {
+            struct stat indexSt;
+            stat(indexPath.c_str(), &indexSt);
+            client->setResponseHeaders(createHeadersLength("text/html", "200", indexSt.st_size, client->getKeepAlive()));
+            client->setFileFd(indexFd);
+            return (true);
+        }
+
+        if (loc.autoindex)
+        {
+            std::string listing = generateAutoindexHTML(filePath, path);
+            int listingFd = writeAutoindexToTempFile(listing);
+            client->setResponseHeaders(createHeadersLength("text/html", "200", listing.size(), client->getKeepAlive()));
+            client->setFileFd(listingFd);
+            return (true);
+        }
+
+        std::string body = "Forbidden";
+        client->setResponseHeaders(createHeadersLength("text/plain", "403 Forbidden", body.size(), client->getKeepAlive()));
+        client->setBuffer(body.c_str(), body.size());
+        client->setFileOffset(0);
+        client->setIsRegularFile(true);
+        client->setFileSize(body.size());
+        client->setFileFd(-1);
+        return (true);
+    }
+
+    if (S_ISREG(st.st_mode) != 0)
+        client->setResponseHeaders(createHeadersLength(typeFile, "200", st.st_size, client->getKeepAlive()));
+    else
+        client->setResponseHeaders(createChunkedHeader(typeFile, "200", client->getKeepAlive()));
+    client->setFileFd(file);
+
+    if (tryStartCgiForClient(client->getSocket(), client->getRequest(), filePath, loc, epoll_fd, cgiByReadFd, writeFdToReadFd))
+    {
+        close(file);
+        client->setFileFd(-1);
+        return (false);
+    }
+
+    return (true);
+}
+
+bool requestPost(Client *client, const LocationConfig &loc, int epoll_fd, std::map<int, CgiProcess> &cgiByReadFd, std::map<int, int> &writeFdToReadFd)
+{
+    std::string path = client->getRequest().path;
+
+    std::string directPath = loc.root + path;
+    if (tryStartCgiForClient(client->getSocket(), client->getRequest(), directPath, loc, epoll_fd, cgiByReadFd, writeFdToReadFd))
+        return (false);
+
+    std::string targetRoot = loc.root;
+    std::string targetPath = path;
+    if (!loc.uploadStore.empty())
+    {
+        targetRoot = loc.uploadStore;
+        targetPath = stripLocationPrefix(path, loc.path);
+    }
+    std::string filePath = targetRoot + targetPath;
+
+    client->setFileFd(-1);
+    if (!isCreateTargetWithinRoot(filePath, targetRoot))
+    {
+        std::string body = "Forbidden";
+        client->setResponseHeaders(createHeadersLength("text/plain", "403 Forbidden", body.size(), client->getKeepAlive()));
+        client->setBuffer(body.c_str(), body.size());
+        client->setFileSize(body.size());
+        client->setFileOffset(0);
+        client->setIsRegularFile(true);
+        return (true);
+    }
+    struct stat st;
+    bool exist = (stat(filePath.c_str(), &st) == 0);
+    std::ofstream file(filePath.c_str(), std::ios::binary | std::ios::trunc);
+    std::string body;
+    std::string status;
+
+    if (!file.is_open())
+    {
+        body = "Could not write file";
+        status = "500 Internal Server Error";
+    }
+    else
+    {
+        file << client->getRequest().body;
+        file.close();
+        if (exist)
+        {
+            body = "Updated";
+            status = "200 OK";
+        }
+        else
+        {
+            body = "Created";
+            status = "201 Created";
+        }
+    }
+    client->setResponseHeaders(createHeadersLength("text/plain", status, body.size(), client->getKeepAlive()));
+    client->setBuffer(body.c_str(), body.size());
+    client->setFileOffset(0);
+    client->setIsRegularFile(true);
+    client->setFileSize(body.size());
+    return (true);
+}
+
+void requestDelete(Client *client, const LocationConfig &loc)
+{
+    std::string path = client->getRequest().path;
+    std::string filePath = loc.root + path;
+    std::string body;
+    std::string status;
+
+    client->setFileFd(-1);
+    char realBoundary[PATH_MAX];
+    if (realpath((loc.root + loc.path).c_str(), realBoundary) == NULL)
+    {
+        body = "Not Found";
+        status = "404";
+    }
+    else if (!isPathWithinRoot(filePath, loc.root + loc.path))
+    {
+        body = "Forbidden";
+        status = "403 Forbidden";
+    }
+    else
+    {
+        struct stat st;
+        if (stat(filePath.c_str(), &st) != 0)
+        {
+            body = "Not Found";
+            status = "404 Not Found";
+        }
+        else if (!S_ISREG(st.st_mode))
+        {
+            body = "Forbidden";
+            status = "403 Forbidden";
+        }
+        else if (std::remove(filePath.c_str()) != 0)
+        {
+            body = "Could not delete file";
+            status = "500 Internal Server Error";
+        }
+        else
+        {
+            body = "Deleted";
+            status = "200 OK";
+        }
+    }
+    client->setResponseHeaders(createHeadersLength("text/plain", status, body.size(), client->getKeepAlive()));
+    client->setBuffer(body.c_str(), body.size());
+    client->setFileOffset(0);
+    client->setIsRegularFile(true);
+    client->setFileSize(body.size());
+}
+
+void requestNotAllowed(Client *client, const LocationConfig &loc)
+{
+    std::string body = "405 Method Not Allowed";
+
+    std::string allowList;
+    for (size_t i = 0; i < loc.methods.size(); ++i)
+    {
+        if (i > 0)
+            allowList += ", ";
+        allowList += loc.methods[i];
+    }
+
+    std::stringstream headers;
+    headers << "HTTP/1.1 405 Method Not Allowed\r\n"
+            << "Content-Type: text/plain\r\n"
+            << "Content-Length: " << body.size() << "\r\n"
+            << "Allow: " << allowList << "\r\n"
+            << (client->getKeepAlive() ? "Connection: keep-alive\r\n" : "Connection: close\r\n")
+            << "\r\n";
+
+    client->setResponseHeaders(headers.str());
+    client->setBuffer(body.c_str(), body.size());
+    client->setFileOffset(0);
+    client->setIsRegularFile(true);
+    client->setFileSize(body.size());
+}
+
+static bool isKnownMethod(const std::string &method)
+{
+    return (method == "GET" || method == "POST" || method == "DELETE");
+}
+
+void requestNotImplemented(Client *client)
+{
+    std::string body = "501 Not Implemented";
+    client->setResponseHeaders(createHeadersLength("text/plain", "501 Not Implemented", body.size(), client->getKeepAlive()));
+    client->setBuffer(body.c_str(), body.size());
+    client->setFileOffset(0);
+    client->setIsRegularFile(true);
+    client->setFileSize(body.size());
+}
+
+static void sendRedirect(Client *client, const std::string &code, const std::string &redirectPath)
+{
+    std::stringstream ss;
+    ss << "HTTP/1.1 " << code << " " << statusMessage(code) << "\r\n";
+    ss << "Location: " << redirectPath << "\r\n";
+    ss << "Content-Length: 0\r\n";
+    ss << (client->getKeepAlive() ? "Connection: keep-alive\r\n" : "Connection: close\r\n");
+    ss << "\r\n";
+
+    client->setResponseHeaders(ss.str());
+    client->setBuffer("", 0);
+    client->setFileFd(-1);
+    client->setFileSize(0);
+    client->setFileOffset(0);
+}
+
+bool Procesrequest(Client * client, int epoll_fd, std::map<int, CgiProcess> &cgiByReadFd, std::map<int, int> &writeFdToReadFd, CookiesManager &cookieManager)
+{
+    if (client->getParseError() != 0)
+    {
+        std::string status, body;
+
+        if (client->getParseError() == 411)
+        {
+            status = "411 Length Required";
+            body = "Length Required";
+        }
+        else if (client->getParseError() == 413)
+        {
+            status = "413 Payload Too Large";
+            body = "Payload Too Large";
+        }
+
+        client->setResponseHeaders(createHeadersLength("text/plain", status, body.size(), client->getKeepAlive()));
+        client->setBuffer(body.c_str(), body.size());
+        client->setFileOffset(0);
+        client->setIsRegularFile(true);
+        client->setFileSize(body.size());
+        return (true);
+    }
+
+    const std::string path = client->getRequest().path;
+    const std::string method = client->getRequest().type;
+
+    if (path == "/login" && method == "GET")
+    {
+        requestLoginPage(client);
+        return (true);
+    }
+    if (path == "/login/submit" && method == "POST")
+    {
+        requestLoginSubmit(client, cookieManager);
+        return (true);
+    }
+
+    const ServerConfig *server = client->getServerConfig();
+    const LocationConfig *loc = (server != NULL) ? findLocation(*server, path) : NULL;
+
+    if (loc == NULL)
+    {
+        std::string body = "Not Found";
+        client->setResponseHeaders(createHeadersLength("text/plain", "404 Not Found", body.size(), client->getKeepAlive()));
+        client->setBuffer(body.c_str(), body.size());
+        client->setFileOffset(0);
+        client->setIsRegularFile(true);
+        client->setFileSize(body.size());
+        client->setFileFd(-1);
+        return (true);
+    }
+
+    if (!loc->redirectionPage.empty())
+    {
+        sendRedirect(client, loc->redirectionCode, loc->redirectionPage);
+        return (true);
+    }
+
+    if (!isKnownMethod(method))
+    {
+        requestNotImplemented(client);
+        return (true);
+    }
+
+    bool methodAllowed = false;
+    for (size_t i = 0; i < loc->methods.size(); ++i)
+    {
+        if (loc->methods[i] == method)
+        {
+            methodAllowed = true;
+            break;
+        }
+    }
+    if (!methodAllowed)
+    {
+        requestNotAllowed(client, *loc);
+        return (true);
+    }
+
+    if (!isPublicRoute(path) && !client->hasValidSesion(cookieManager))
+    {
+        requestRedirectToLogin(client);
+        return (true);
+    }
+
+    if (method == "GET")
+        return (requestGet(client, *loc, epoll_fd, cgiByReadFd, writeFdToReadFd));
+    else if (method == "POST")
+        return (requestPost(client, *loc, epoll_fd, cgiByReadFd, writeFdToReadFd));
+    else if (method == "DELETE")
+    {
+        requestDelete(client, *loc);
+        return (true);
+    }
+    requestNotAllowed(client, *loc);
+    return (true);
+}
