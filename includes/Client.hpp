@@ -98,6 +98,8 @@ public:
     bool isRequestComplete();
     void setParseError(int code);
     int  getParseError();
+    
+    void setRequestQuery(const std::string &query);
 
     void updateActivity();
     time_t getLastActivity() const;
