@@ -120,7 +120,7 @@ int prepare_response(std::map<int, Client> &clients, Client &client, int current
 
 void sendHeaders(int current_fd, std::string headers, Client &client, std::map<int , Client> &clients, int epoll_fd)
 {
-    ssize_t sent = send(current_fd, headers.c_str() + client.getHeaderOffset(), headers.size() - client.getHeaderOffset(),0);
+    ssize_t sent = send(current_fd, headers.c_str() + client.getHeaderOffset(), headers.size() - client.getHeaderOffset(),MSG_NOSIGNAL);
     if (sent <= 0)
     {
         close_conection(clients, current_fd, epoll_fd);
@@ -194,7 +194,7 @@ void sendResponse(std::map<int, Client> &clients, int current_fd, int epoll_fd)
         if (!prepare_response(clients, client, current_fd, epoll_fd))
             return ;
     }
-    ssize_t sent = send(current_fd, client.getBuffer() + client.getFileOffset() ,client.getFileSize() - client.getFileOffset(), 0);
+    ssize_t sent = send(current_fd, client.getBuffer() + client.getFileOffset() ,client.getFileSize() - client.getFileOffset(), MSG_NOSIGNAL);
     if (sent <= 0)
     {
         finishResponse(clients, current_fd, epoll_fd);
@@ -250,7 +250,7 @@ static std::map<int, const ServerConfig*> setupListenSockets(const Config &confi
 
     for (size_t i = 0; i < config.size(); ++i)
     {
-        int fd = socket(AF_INET, SOCK_STREAM, 0);
+        int fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
         if (fd == -1)
         {
             std::cout << "FAILURE CREATE SOCKET" << std::endl;
@@ -281,6 +281,7 @@ int main(int argc, char **argv)
 {
     signal(SIGINT, signalHandler);
 
+	signal(SIGPIPE, SIG_IGN); 
     // si se hace send() a un socket que ya cerró la conexion el kernel devuelve SIGPIPE que mata todo el proceso.
     
 
@@ -293,7 +294,6 @@ int main(int argc, char **argv)
         std::cout << "FAILURE EPOLL\n";
         std::exit(EXIT_FAILURE);
     }
-
     std::map<int, const ServerConfig*> listenFds = setupListenSockets(config, epoll_fd);
 
     epoll_event events[1024];
@@ -344,6 +344,7 @@ int main(int argc, char **argv)
 				functions[index](clients, current_fd, epoll_fd);
 		}
 	}
+    killAllCgi(cgiByReadFd, writeFdToReadFd);
     close(epoll_fd);
     for (std::map<int, const ServerConfig*>::iterator it = listenFds.begin(); it != listenFds.end(); ++it)
         close(it->first);

@@ -167,7 +167,6 @@ int writeAutoindexToTempFile(const std::string &html)
     int fd = mkstemp(tmpPath);
     if (fd < 0)
         return (-1);
-
     ssize_t written = write(fd, html.c_str(), html.size());
 	if (written < 0 || static_cast<size_t>(written) != html.size())
 	{
@@ -348,7 +347,7 @@ bool requestGet(Client *client, const LocationConfig &loc, int epoll_fd, std::ma
 		    typeFile = it->second;
 	}
 	/////////////////
-	int file = open(filePath.c_str(), O_RDONLY);
+	int file = open(filePath.c_str(), O_RDONLY | O_CLOEXEC);
     struct stat st;
     if (file < 0)
     {
@@ -365,7 +364,7 @@ bool requestGet(Client *client, const LocationConfig &loc, int epoll_fd, std::ma
 		struct stat errSt;
 		memset(&errSt, 0, sizeof(errSt)); // inicializarlo en cero para que luego no pille valore basura
 
-		int errorfd = open(errorPagePath.c_str(), O_RDONLY);
+		int errorfd = open(errorPagePath.c_str(), O_RDONLY | O_CLOEXEC);
 		if (errorfd >= 0 && stat(errorPagePath.c_str(), &errSt) == 0 && S_ISREG(errSt.st_mode))
 		{
 			client->setResponseHeaders(createHeadersLength("text/html", "404", errSt.st_size, client->getKeepAlive()));
@@ -408,7 +407,7 @@ bool requestGet(Client *client, const LocationConfig &loc, int epoll_fd, std::ma
 		    indexPath += "/";						// estas dos lineas creoq ue se pueden queitar porque el if anterior "fixea" que el cliente nos meta un directorio sin / al final, no lo hago porque tengo miedo, y sigue funcionando bien aun con el dead code
 		indexPath += loc.index;
 
-		int indexFd = open(indexPath.c_str(), O_RDONLY);
+		int indexFd = open(indexPath.c_str(), O_RDONLY | O_CLOEXEC);
 		if (indexFd >= 0)
 		{
 		    struct stat indexSt;
@@ -443,7 +442,7 @@ bool requestGet(Client *client, const LocationConfig &loc, int epoll_fd, std::ma
         client->setResponseHeaders(createChunkedHeader(typeFile, "200", client->getKeepAlive()));
     client->setFileFd(file);
     
-    if (tryStartCgiForClient(client->getSocket(), client->getRequest(), filePath, loc, epoll_fd, cgiByReadFd, writeFdToReadFd))
+    if (tryStartCgiForClient(client->getSocket(), client->getSerial(), client->getRequest(), filePath, loc, epoll_fd, cgiByReadFd, writeFdToReadFd))
 	{
 		close(file);
 		return (false);
@@ -457,7 +456,7 @@ bool requestPost(Client *client, const LocationConfig &loc, int epoll_fd, std::m
     std::string path = client->getRequest().path;
 
 	std::string directPath = loc.root + path;
-    if (tryStartCgiForClient(client->getSocket(), client->getRequest(), directPath, loc, epoll_fd, cgiByReadFd, writeFdToReadFd))
+    if (tryStartCgiForClient(client->getSocket(), client->getSerial(), client->getRequest(), directPath, loc, epoll_fd, cgiByReadFd, writeFdToReadFd))
         return (false);
 
     std::string targetRoot = loc.root;

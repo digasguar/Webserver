@@ -12,7 +12,7 @@ static std::string extensionOf(const std::string &path)
     return (path.substr(dot));
 }
 
-bool tryStartCgiForClient(int clientFd, const HttpRequesr &request, const std::string &filePath,
+bool tryStartCgiForClient(int clientFd, unsigned long clientSerial, const HttpRequesr &request, const std::string &filePath,
                           const LocationConfig &loc, int epoll_fd,
                           std::map<int, CgiProcess> &cgiByReadFd,
                           std::map<int, int> &writeFdToReadFd)
@@ -27,6 +27,7 @@ bool tryStartCgiForClient(int clientFd, const HttpRequesr &request, const std::s
         return (false); // TODO: esto deberia devolver un 500, no caer al flujo normal
 
     proc.clientFd = clientFd;
+    proc.clientSerial = clientSerial;
 
     epoll_event readEv;
     readEv.data.fd = proc.readFd;
@@ -64,7 +65,7 @@ void handleCgiWrite(std::map<int, Client> &clients, std::map<int, CgiProcess> &c
     CgiProcess &proc = cIt->second;
 
     std::map<int, Client>::iterator clIt = clients.find(proc.clientFd);
-    if (clIt == clients.end())
+    if (clIt == clients.end() || clIt->second.getSerial() != proc.clientSerial)
     {
         epoll_ctl(epoll_fd, EPOLL_CTL_DEL, write_fd, NULL);
         close(write_fd);
@@ -117,7 +118,7 @@ void handleCgiRead(std::map<int, Client> &clients, std::map<int, CgiProcess> &cg
     waitpid(proc.pid, &status, 0);
 
     std::map<int, Client>::iterator clIt = clients.find(proc.clientFd);
-    if (clIt != clients.end())
+    if (clIt != clients.end() && clIt->second.getSerial() == proc.clientSerial)
     {
         Client &client = clIt->second;
 
@@ -174,4 +175,18 @@ void handleCgiRead(std::map<int, Client> &clients, std::map<int, CgiProcess> &cg
     }
 
     cgiByReadFd.erase(cIt);
+}
+
+void killAllCgi(std::map<int, CgiProcess> &cgiByReadFd, std::map<int, int> &writeFdToReadFd)
+{
+    for (std::map<int, CgiProcess>::iterator it = cgiByReadFd.begin(); it != cgiByReadFd.end(); ++it)
+    {
+        kill(it->second.pid, SIGKILL);
+        waitpid(it->second.pid, NULL, 0); // tras SIGKILL no bloquea; evita zombies
+        close(it->first);
+    }
+    for (std::map<int, int>::iterator it = writeFdToReadFd.begin(); it != writeFdToReadFd.end(); ++it)
+        close(it->first);
+    cgiByReadFd.clear();
+    writeFdToReadFd.clear();
 }

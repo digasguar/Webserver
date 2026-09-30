@@ -11,11 +11,12 @@ struct CgiProcess
     int   writeFd;
     int   readFd;
     int   clientFd;
+    unsigned long clientSerial;
     size_t bodyBytesSent;
     std::string outputSoFar;
     bool  finished;
 
-    CgiProcess() : pid(-1), writeFd(-1), readFd(-1), clientFd(-1), bodyBytesSent(0), finished(false) {}
+    CgiProcess() : pid(-1), writeFd(-1), readFd(-1), clientFd(-1), clientSerial(0), bodyBytesSent(0), finished(false) {}
 };
 
 bool startCgi(const HttpRequesr &request, const std::string &scriptPath,

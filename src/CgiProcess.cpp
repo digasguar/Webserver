@@ -61,6 +61,9 @@ bool startCgi(const HttpRequesr &request, const std::string &scriptPath,
         close(inPipe[1]);
         close(outPipe[0]);
         close(outPipe[1]);
+        
+        for (int fd = 3; fd < 1024; ++fd)
+            close(fd);
 
         if (chdir(dirnameOf(scriptPath).c_str()) != 0)
             _exit(1);
