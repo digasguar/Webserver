@@ -176,3 +176,17 @@ void handleCgiRead(std::map<int, Client> &clients, std::map<int, CgiProcess> &cg
 
     cgiByReadFd.erase(cIt);
 }
+
+void killAllCgi(std::map<int, CgiProcess> &cgiByReadFd, std::map<int, int> &writeFdToReadFd)
+{
+    for (std::map<int, CgiProcess>::iterator it = cgiByReadFd.begin(); it != cgiByReadFd.end(); ++it)
+    {
+        kill(it->second.pid, SIGKILL);
+        waitpid(it->second.pid, NULL, 0); // tras SIGKILL no bloquea; evita zombies
+        close(it->first);
+    }
+    for (std::map<int, int>::iterator it = writeFdToReadFd.begin(); it != writeFdToReadFd.end(); ++it)
+        close(it->first);
+    cgiByReadFd.clear();
+    writeFdToReadFd.clear();
+}

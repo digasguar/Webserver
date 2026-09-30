@@ -16,5 +16,7 @@ void handleCgiWrite(std::map<int, Client> &clients, std::map<int, CgiProcess> &c
 
 void handleCgiRead(std::map<int, Client> &clients, std::map<int, CgiProcess> &cgiByReadFd,
                     std::map<int, int> &writeFdToReadFd, int read_fd, int epoll_fd);
+                    
+void killAllCgi(std::map<int, CgiProcess> &cgiByReadFd, std::map<int, int> &writeFdToReadFd);
 
 #endif

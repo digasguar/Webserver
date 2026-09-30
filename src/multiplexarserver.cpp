@@ -250,7 +250,7 @@ static std::map<int, const ServerConfig*> setupListenSockets(const Config &confi
 
     for (size_t i = 0; i < config.size(); ++i)
     {
-        int fd = socket(AF_INET, SOCK_STREAM, 0);
+        int fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
         if (fd == -1)
         {
             std::cout << "FAILURE CREATE SOCKET" << std::endl;
@@ -294,7 +294,6 @@ int main(int argc, char **argv)
         std::cout << "FAILURE EPOLL\n";
         exit(EXIT_FAILURE);
     }
-
     std::map<int, const ServerConfig*> listenFds = setupListenSockets(config, epoll_fd);
 
     epoll_event events[1024];
@@ -345,6 +344,7 @@ int main(int argc, char **argv)
 				functions[index](clients, current_fd, epoll_fd);
 		}
 	}
+    killAllCgi(cgiByReadFd, writeFdToReadFd);
     close(epoll_fd);
     for (std::map<int, const ServerConfig*>::iterator it = listenFds.begin(); it != listenFds.end(); ++it)
         close(it->first);
