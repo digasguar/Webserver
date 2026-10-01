@@ -111,6 +111,8 @@ public:
     void failParse(int code); // marca error de parseo y da la peticion por terminada
     
     void setRequestQuery(const std::string &query);
+    void setRequestPathInfo(const std::string &pathInfo);
+    void setRemoteAddr(const std::string &addr);
 
     void updateActivity();
     time_t getLastActivity() const;

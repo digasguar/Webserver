@@ -23,13 +23,24 @@ void createClient(std::map<int, Client> &clients, int fd, int epoll_fd, const st
 
     while (true)
     {
-        int fd_client = accept(fd, NULL, NULL);
+        struct sockaddr_storage peer;
+        socklen_t peerLen = sizeof(peer);
+        std::memset(&peer, 0, sizeof(peer));
+        int fd_client = accept(fd, reinterpret_cast<struct sockaddr *>(&peer), &peerLen);
+
         if (fd_client < 0)
             break;
         fcntl(fd_client, F_SETFL, O_NONBLOCK);
 		g_touchedFds.insert(fd_client);
 		
-        clients.insert(std::make_pair(fd_client, Client(fd_client, serverConfig)));
+		std::map<int, Client>::iterator newClient = clients.insert(std::make_pair(fd_client, Client(fd_client, serverConfig))).first;
+        if (peer.ss_family == AF_INET) // IPv4 -> "a.b.c.d" (sin inet_ntoa, que no esta en la lista de funciones permitidas)
+        {
+            unsigned long ip = ntohl(reinterpret_cast<struct sockaddr_in *>(&peer)->sin_addr.s_addr);
+            std::stringstream addr;
+            addr << ((ip >> 24) & 0xff) << "." << ((ip >> 16) & 0xff) << "." << ((ip >> 8) & 0xff) << "." << (ip & 0xff);
+            newClient->second.setRemoteAddr(addr.str());
+        }
 
         epoll_event client_event;
         client_event.data.fd = fd_client;

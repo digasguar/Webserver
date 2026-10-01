@@ -616,6 +616,33 @@ static void sendRedirect(Client *client, const std::string &code, const std::str
     client->setFileOffset(0);
 }
 
+// URL tipo /cgi-bin/script.py/extra/ruta -> el script es /cgi-bin/script.py y PATH_INFO="/extra/ruta" (RFC 3875).
+// Solo se separa si la ruta completa NO existe y algun prefijo es un fichero regular con extension CGI de esta location.
+static void splitCgiPathInfo(Client *client, const LocationConfig &loc)
+{
+    if (loc.cgiHandlers.empty())
+        return ;
+    std::string path = client->getRequest().path;
+    struct stat st;
+    if (stat((loc.root + path).c_str(), &st) == 0)
+        return ; // existe tal cual: no hay PATH_INFO
+    for (size_t pos = path.find('/', 1); pos != std::string::npos; pos = path.find('/', pos + 1))
+    {
+        std::string prefix = path.substr(0, pos);
+        size_t dot = prefix.find_last_of('.');
+        size_t slash = prefix.find_last_of('/');
+        if (dot == std::string::npos || (slash != std::string::npos && dot < slash))
+            continue ;
+        if (loc.cgiHandlers.find(prefix.substr(dot)) == loc.cgiHandlers.end())
+            continue ;
+        if (stat((loc.root + prefix).c_str(), &st) == 0 && S_ISREG(st.st_mode))
+        {
+            client->setRequestPathInfo(path.substr(pos));
+            client->setRequestPath(prefix);
+            return ;
+        }
+    }
+}
 
 bool Procesrequest(Client * client, int epoll_fd, std::map<int, CgiProcess> &cgiByReadFd, std::map<int, int> &writeFdToReadFd)
 {
@@ -693,6 +720,9 @@ bool Procesrequest(Client * client, int epoll_fd, std::map<int, CgiProcess> &cgi
     	requestNotAllowed(client, *loc);
     	return (true);
     }
+
+	if (method == "GET" || method == "POST")
+		splitCgiPathInfo(client, *loc);
 
     if (method == "GET")
         return (requestGet(client, *loc, epoll_fd, cgiByReadFd, writeFdToReadFd));

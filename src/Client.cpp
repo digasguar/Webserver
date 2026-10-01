@@ -93,6 +93,13 @@ Client::Client(int socket, const ServerConfig *serverConfig): _socket(socket), _
     this->_buffer.resize(4096);
     this->_pipelined = false;
     this->_headerBytes = 0;
+    
+    if (serverConfig != NULL)
+    {
+        std::stringstream port;
+        port << serverConfig->port;
+        this->_request.serverPort = port.str();
+    }
 };
 
 bool Client::takePipelined()
@@ -174,6 +181,10 @@ bool Client::isRequestComplete()
 void Client::setParseError(int code) { this->_parseError = code; }
 
 int  Client::getParseError() { return this->_parseError; }
+
+void Client::setRequestPathInfo(const std::string &pathInfo){this->_request.pathInfo = pathInfo;}
+
+void Client::setRemoteAddr(const std::string &addr){this->_request.remoteAddr = addr;}
 
 void Client::parseRequest()
 {
@@ -485,6 +496,7 @@ void Client::resetRequest()
     this->_parseError = 0;
     this->_pipelined = false;
     this->_headerBytes = 0;
+    this->_request.pathInfo.clear();
     if (this->_buffer.size() > 4096)
 		std::vector<char>(4096).swap(this->_buffer);
 	if (!this->recv_buffer.empty())
