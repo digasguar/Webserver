@@ -512,3 +512,4 @@ void Client::updateActivity(){this->_last_activity = time(NULL);}
 time_t Client::getLastActivity() const {return (this->_last_activity);}
 
 unsigned long Client::getSerial() const { return this->_serial; }
+
