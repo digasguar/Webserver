@@ -10,11 +10,18 @@
 #include <algorithm>
 #include <cctype>
 
-std::string createHeadersLength(const std::string type, const std::string status, size_t length, bool keep_alive)
+std::string createHeadersLength(const std::string type, const std::string statusIn, size_t length, bool keep_alive)
 {
     std::stringstream ss;
     ss << length;
-
+	
+	// varios llamadores pasan solo el codigo ("200", "404")
+	// se completa con el texto, que si no la linea de estado
+    // antes salia solo como "HTTP/1.1 200" (sin reason-phrase)
+    std::string status = statusIn;
+    if (status.size() == 3 && status.find_first_not_of("0123456789") == std::string::npos)
+        status += " " + statusMessage(status);
+	
     if (!keep_alive)
         return ("HTTP/1.1 " + status + "\r\n"
             "Content-Type: " + type + "\r\n"
