@@ -242,8 +242,24 @@ void Client::parseRequest()
             return;
         }
 
-        // ... (sin cambios: el split del query y percentDecode) ...
-        if (path.find('\0') != std::string::npos) // %00 en la ruta
+		//////////////////////
+		//el split para el query
+		std::string query;
+		size_t qpos = path.find('?');
+		if (qpos != std::string::npos)
+		{
+			query = path.substr(qpos + 1);
+			path = path.substr(0, qpos);
+		}
+		//////////////////////
+
+		
+		///////////
+		//true decoded path
+		path = percentDecode(path);
+		///////////
+
+		if (path.find('\0') != std::string::npos) // %00 en la ruta
         {
             failParse(400);
             return;
@@ -281,9 +297,16 @@ void Client::parseRequest()
 
             if (line.empty())
             {
-                // ... (sin cambios: la logica de keep-alive con "connection") ...
+				bool isHttp11 = (this->_request.version == "HTTP/1.1");
+				std::map<std::string, std::string>::iterator connIt =
+					this->_request.headers.find("connection");
 
-                std::map<std::string, std::string>::iterator clIt = this->_request.headers.find("content-length");
+				if (connIt == this->_request.headers.end())
+					setKeepAlive(isHttp11);
+				else
+					setKeepAlive(toLower(connIt->second) == "keep-alive");
+
+				std::map<std::string, std::string>::iterator clIt = this->_request.headers.find("content-length");
                 std::map<std::string, std::string>::iterator teIt = this->_request.headers.find("transfer-encoding");
 
                 // RFC 7230 3.3.3: las dos a la vez es la base del "request smuggling" -> se rechaza

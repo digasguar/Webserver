@@ -44,7 +44,7 @@ private:
 
     int _parseError;
     
-    
+    size_t _headerBytes; // bytes que llevan gastados la request-line + cabeceras de la peticion en curso
 
     std::string _responseHeaders; //los headers de la respuesta
 
