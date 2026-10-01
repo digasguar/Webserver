@@ -426,6 +426,7 @@ bool requestGet(Client *client, const LocationConfig &loc, int epoll_fd, std::ma
     if (tryStartCgiForClient(client->getSocket(), client->getSerial(), client->getRequest(), filePath, loc, epoll_fd, cgiByReadFd, writeFdToReadFd))
 	{
 		close(file);
+		client->setFileFd(-1);
 		return (false);
 	}
 	
