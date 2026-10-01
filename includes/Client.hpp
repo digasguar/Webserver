@@ -6,6 +6,11 @@
 #include "HttpRequest.hpp"
 #define MAX_BODY_SIZE 1024 * 1024 * 10  // 10MB, fallback defensivo si _serverConfig fuera NULL (no deberia pasar nunca)
 #define CLIENT_TIMEOUT 120 //tiempo para el timeut por inactividad (igual que el keepalive_timeout por defecto de nginx)
+#define MAX_PIPELINE_BUFFER 65536 // lo maximo que se guarda de peticiones que llegan mientras se atiende otra
+
+#define MAX_REQUEST_LINE 8192   // request-line mas larga aceptada -> 414 (nginx: 8k)
+#define MAX_HEADER_BYTES 16384  // request-line + todas las cabeceras -> 431
+#define MAX_HEADER_COUNT 100    // numero maximo de cabeceras -> 431
 
 struct ServerConfig;
 
@@ -38,6 +43,8 @@ private:
     ParseState _parseState;
 
     int _parseError;
+    
+    
 
     std::string _responseHeaders; //los headers de la respuesta
 
@@ -101,6 +108,7 @@ public:
     bool isRequestComplete();
     void setParseError(int code);
     int  getParseError();
+    void failParse(int code); // marca error de parseo y da la peticion por terminada
     
     void setRequestQuery(const std::string &query);
 
@@ -108,6 +116,9 @@ public:
     time_t getLastActivity() const;
     
     unsigned long getSerial() const;
+
+	bool _pipelined; // al acabar la respuesta anterior ya habia otra peticion COMPLETA en recv_buffer
+	bool takePipelined(); // devuelve _pipelined y lo pone a false
 
     Client(int socket, const ServerConfig *serverConfig);
     ~Client();
