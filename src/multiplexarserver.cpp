@@ -375,25 +375,34 @@ int main(int argc, char **argv)
             
             if (g_touchedFds.count(current_fd))
 				continue; // evento viejo de un fd que ya se cerro/recreo en esta vuelta
-            
-            if (cgiByReadFd.find(current_fd) != cgiByReadFd.end())
-			{
-				handleCgiRead(clients, cgiByReadFd, writeFdToReadFd, current_fd, epoll_fd);
-				continue;
-			}
-			if (writeFdToReadFd.find(current_fd) != writeFdToReadFd.end())
-			{
-				handleCgiWrite(clients, cgiByReadFd, writeFdToReadFd, current_fd, epoll_fd);
-				continue;
-			}
+            try
+            {
+		        if (cgiByReadFd.find(current_fd) != cgiByReadFd.end())
+				{
+					handleCgiRead(clients, cgiByReadFd, writeFdToReadFd, current_fd, epoll_fd);
+					continue;
+				}
+				if (writeFdToReadFd.find(current_fd) != writeFdToReadFd.end())
+				{
+					handleCgiWrite(clients, cgiByReadFd, writeFdToReadFd, current_fd, epoll_fd);
+					continue;
+				}
 
-			size_t index = calculate_index(current_fd, listenFds, events[i]);
-			if (index == 1)
-				createClient(clients, current_fd, epoll_fd, listenFds);
-			else if (index == 2)
-				reciveRequest(clients, current_fd, epoll_fd, cgiByReadFd, writeFdToReadFd);
-			else
-				functions[index](clients, current_fd, epoll_fd);
+				size_t index = calculate_index(current_fd, listenFds, events[i]);
+				if (index == 1)
+					createClient(clients, current_fd, epoll_fd, listenFds);
+				else if (index == 2)
+					reciveRequest(clients, current_fd, epoll_fd, cgiByReadFd, writeFdToReadFd);
+				else
+					functions[index](clients, current_fd, epoll_fd);
+			}
+			catch (const std::exception &e)
+            {
+                // p.ej. std::bad_alloc con un cliente que manda muchisimo: se descarta ESE cliente, el servidor sigue
+                std::cerr << "error atendiendo fd " << current_fd << ": " << e.what() << std::endl;
+                if (clients.find(current_fd) != clients.end())
+                    close_conection(clients, current_fd, epoll_fd);
+            }
 		}
 	}
     killAllCgi(cgiByReadFd, writeFdToReadFd);
