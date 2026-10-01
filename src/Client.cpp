@@ -36,6 +36,8 @@ static std::string percentDecode(const std::string &s)
 
 Client::Client(int socket, const ServerConfig *serverConfig): _socket(socket), _serverConfig(serverConfig)
 {
+    static unsigned long nextSerial = 0;
+    this->_serial = ++nextSerial;
     this->_file_fd = -1;
     this->_headerOffset = 0;
     this->_fileOffset = 0;
@@ -297,3 +299,5 @@ void Client::resetRequest()
 void Client::updateActivity(){this->_last_activity = time(NULL);}
 
 time_t Client::getLastActivity() const {return (this->_last_activity);}
+
+unsigned long Client::getSerial() const { return this->_serial; }

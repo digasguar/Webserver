@@ -2,6 +2,7 @@
 #include "../includes/Client.hpp"
 #include "../includes/ConfigTypes.hpp"
 #include "../includes/ConfigLookup.hpp"
+#include "../includes/CgiRunner.hpp"
 
 #include <cstring>
 #include <dirent.h>
@@ -166,7 +167,6 @@ int writeAutoindexToTempFile(const std::string &html)
     int fd = mkstemp(tmpPath);
     if (fd < 0)
         return (-1);
-
     ssize_t written = write(fd, html.c_str(), html.size());
 	if (written < 0 || static_cast<size_t>(written) != html.size())
 	{
@@ -252,7 +252,7 @@ static std::string stripLocationPrefix(const std::string &path, const std::strin
 }
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
-void requestGet(Client *client, const LocationConfig &loc)
+bool requestGet(Client *client, const LocationConfig &loc, int epoll_fd, std::map<int, CgiProcess> &cgiByReadFd, std::map<int, int> &writeFdToReadFd)
 {
     std::string path = client->getRequest().path;
 
@@ -271,7 +271,7 @@ void requestGet(Client *client, const LocationConfig &loc)
         client->setIsRegularFile(true);
         client->setFileSize(body.size());
         client->setFileFd(-1);
-        return ;
+        return (true);
     }
     if (!isPathWithinRoot(filePath, loc.root + loc.path))
 	{
@@ -282,7 +282,7 @@ void requestGet(Client *client, const LocationConfig &loc)
 		client->setIsRegularFile(true);
 		client->setFileSize(body.size());
 		client->setFileFd(-1);
-		return ;
+		return (true);
 	}
     //////////////////////////////////
     static std::map<std::string, std::string> typeFileDict;
@@ -328,7 +328,7 @@ void requestGet(Client *client, const LocationConfig &loc)
 		    typeFile = it->second;
 	}
 	/////////////////
-	int file = open(filePath.c_str(), O_RDONLY);
+	int file = open(filePath.c_str(), O_RDONLY | O_CLOEXEC);
     struct stat st;
     if (file < 0)
     {
@@ -345,7 +345,7 @@ void requestGet(Client *client, const LocationConfig &loc)
 		struct stat errSt;
 		memset(&errSt, 0, sizeof(errSt)); // inicializarlo en cero para que luego no pille valore basura
 
-		int errorfd = open(errorPagePath.c_str(), O_RDONLY);
+		int errorfd = open(errorPagePath.c_str(), O_RDONLY | O_CLOEXEC);
 		if (errorfd >= 0 && stat(errorPagePath.c_str(), &errSt) == 0 && S_ISREG(errSt.st_mode))
 		{
 			client->setResponseHeaders(createHeadersLength("text/html", "404", errSt.st_size, client->getKeepAlive()));
@@ -364,7 +364,7 @@ void requestGet(Client *client, const LocationConfig &loc)
 			client->setFileSize(body.size());
 			client->setFileFd(-1);
 		}
-		return;
+		return (true);
     }
     stat(filePath.c_str(), &st);
     ////////////////////////////////////////////////////////////////////////
@@ -380,7 +380,7 @@ void requestGet(Client *client, const LocationConfig &loc)
 		    client->setIsRegularFile(true);
 		    client->setFileSize(0);
 		    client->setFileFd(-1);
-		    return;
+		    return (true);
 		}
 
 		std::string indexPath = filePath;
@@ -388,14 +388,14 @@ void requestGet(Client *client, const LocationConfig &loc)
 		    indexPath += "/";						// estas dos lineas creoq ue se pueden queitar porque el if anterior "fixea" que el cliente nos meta un directorio sin / al final, no lo hago porque tengo miedo, y sigue funcionando bien aun con el dead code
 		indexPath += loc.index;
 
-		int indexFd = open(indexPath.c_str(), O_RDONLY);
+		int indexFd = open(indexPath.c_str(), O_RDONLY | O_CLOEXEC);
 		if (indexFd >= 0)
 		{
 		    struct stat indexSt;
 		    stat(indexPath.c_str(), &indexSt);
 		    client->setResponseHeaders(createHeadersLength("text/html", "200", indexSt.st_size, client->getKeepAlive()));
 		    client->setFileFd(indexFd);
-		    return;
+		    return (true);
 		}
 
 		if (loc.autoindex)
@@ -404,7 +404,7 @@ void requestGet(Client *client, const LocationConfig &loc)
 		    int listingFd = writeAutoindexToTempFile(listing);
 		    client->setResponseHeaders(createHeadersLength("text/html", "200", listing.size(), client->getKeepAlive()));
 		    client->setFileFd(listingFd);
-		    return;
+		    return (true);
 		}
 
 		std::string body = "Forbidden";
@@ -414,7 +414,7 @@ void requestGet(Client *client, const LocationConfig &loc)
 		client->setIsRegularFile(true);
 		client->setFileSize(body.size());
 		client->setFileFd(-1);
-		return;
+		return (true);
 	}
     ///////////////////////////////////////////////////////////////////////////////
     if (S_ISREG(st.st_mode) != 0)
@@ -422,11 +422,24 @@ void requestGet(Client *client, const LocationConfig &loc)
     else
         client->setResponseHeaders(createChunkedHeader(typeFile, "200", client->getKeepAlive()));
     client->setFileFd(file);
+    
+    if (tryStartCgiForClient(client->getSocket(), client->getSerial(), client->getRequest(), filePath, loc, epoll_fd, cgiByReadFd, writeFdToReadFd))
+	{
+		close(file);
+		client->setFileFd(-1);
+		return (false);
+	}
+	
+	return (true);
 }
 
-void requestPost(Client *client, const LocationConfig &loc)
+bool requestPost(Client *client, const LocationConfig &loc, int epoll_fd, std::map<int, CgiProcess> &cgiByReadFd, std::map<int, int> &writeFdToReadFd)
 {
     std::string path = client->getRequest().path;
+
+	std::string directPath = loc.root + path;
+    if (tryStartCgiForClient(client->getSocket(), client->getSerial(), client->getRequest(), directPath, loc, epoll_fd, cgiByReadFd, writeFdToReadFd))
+        return (false);
 
     std::string targetRoot = loc.root;
     std::string targetPath = path;
@@ -446,7 +459,7 @@ void requestPost(Client *client, const LocationConfig &loc)
         client->setFileSize(body.size());
         client->setFileOffset(0);
         client->setIsRegularFile(true);
-        return ;
+        return (true);
     }
     struct stat st;
     bool exist = (stat(filePath.c_str(),&st) == 0);
@@ -479,6 +492,7 @@ void requestPost(Client *client, const LocationConfig &loc)
     client->setFileOffset(0);
     client->setIsRegularFile(true);
     client->setFileSize(body.size());
+   	return (true);
 }
 
 void requestDelete(Client *client, const LocationConfig &loc)
@@ -596,7 +610,7 @@ static void sendRedirect(Client *client, const std::string &code, const std::str
 }
 
 
-void Procesrequest(Client * client)
+bool Procesrequest(Client * client, int epoll_fd, std::map<int, CgiProcess> &cgiByReadFd, std::map<int, int> &writeFdToReadFd)
 {
 	if (client->getParseError() != 0)
     {
@@ -618,7 +632,7 @@ void Procesrequest(Client * client)
         client->setFileOffset(0);
         client->setIsRegularFile(true);
         client->setFileSize(body.size());
-        return;
+        return (true);
     }
 
     /////////////////////////////////////////////////////////////////////////////////
@@ -646,19 +660,22 @@ void Procesrequest(Client * client)
         client->setIsRegularFile(true);
         client->setFileSize(body.size());
         client->setFileFd(-1);
-        return;
+        return (true);
     }
 
     if (!loc->redirectionPage.empty())
     {
         sendRedirect(client, loc->redirectionCode, loc->redirectionPage);
-        return;
+        return (true);
     }
 
     const std::string &method = client->getRequest().type;
     /////
     if (!isKnownMethod(method))
-	    return (requestNotImplemented(client));
+	{
+		requestNotImplemented(client);
+		return (true);
+	}
     /////
     bool methodAllowed = false;
     for (size_t i = 0; i < loc->methods.size(); ++i)
@@ -670,13 +687,20 @@ void Procesrequest(Client * client)
         }
     }
     if (!methodAllowed)
-        return (requestNotAllowed(client, *loc));
+    {
+    	requestNotAllowed(client, *loc);
+    	return (true);
+    }
 
     if (method == "GET")
-        return (requestGet(client, *loc));
+        return (requestGet(client, *loc, epoll_fd, cgiByReadFd, writeFdToReadFd));
     else if (method == "POST")
-        return (requestPost(client, *loc));
+        return (requestPost(client, *loc, epoll_fd, cgiByReadFd, writeFdToReadFd));
     else if (method == "DELETE")
-        return (requestDelete(client, *loc));
+    {
+    	requestDelete(client, *loc);
+		return (true);
+	}
     requestNotAllowed(client, *loc);
+    return (true);
 }

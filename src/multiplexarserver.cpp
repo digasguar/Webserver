@@ -4,9 +4,12 @@
 #include "../includes/ConfigTypes.hpp"
 #include "../includes/ConfigTokenizer.hpp"
 #include "../includes/ConfigParser.hpp"
+#include "../includes/CgiRunner.hpp"
+
 #include <cstring>
 
 #define DEFAULT_CONFIG_PATH "./config/default.conf"
+
 volatile sig_atomic_t running = 1;
 
 void createClient(std::map<int, Client> &clients, int fd, int epoll_fd, const std::map<int, const ServerConfig*> &listenFds)
@@ -37,7 +40,7 @@ void createClient(std::map<int, Client> &clients, int fd, int epoll_fd, const st
     }
 }
 
-void reciveRequest(std::map<int, Client> &clients, int current_fd, int epoll_fd)
+void reciveRequest(std::map<int, Client> &clients, int current_fd, int epoll_fd, std::map<int, CgiProcess> &cgiByReadFd, std::map<int, int> &writeFdToReadFd)
 {
     std::map<int, Client>::iterator it = clients.find(current_fd);
     if (it == clients.end())
@@ -61,7 +64,11 @@ void reciveRequest(std::map<int, Client> &clients, int current_fd, int epoll_fd)
     client.parseRequest();
     if (!client.isRequestComplete())
     	return ;
-    Procesrequest(&client);
+    
+    bool responseReady = Procesrequest(&client, epoll_fd, cgiByReadFd, writeFdToReadFd);
+    if (!responseReady)
+        return ; // un CGI se ha hecho cargo
+    
     epoll_event response_event;
     response_event.data.fd = current_fd;
     response_event.events = EPOLLOUT;
@@ -113,7 +120,7 @@ int prepare_response(std::map<int, Client> &clients, Client &client, int current
 
 void sendHeaders(int current_fd, std::string headers, Client &client, std::map<int , Client> &clients, int epoll_fd)
 {
-    ssize_t sent = send(current_fd, headers.c_str() + client.getHeaderOffset(), headers.size() - client.getHeaderOffset(),0);
+    ssize_t sent = send(current_fd, headers.c_str() + client.getHeaderOffset(), headers.size() - client.getHeaderOffset(),MSG_NOSIGNAL);
     if (sent <= 0)
     {
         close_conection(clients, current_fd, epoll_fd);
@@ -187,7 +194,7 @@ void sendResponse(std::map<int, Client> &clients, int current_fd, int epoll_fd)
         if (!prepare_response(clients, client, current_fd, epoll_fd))
             return ;
     }
-    ssize_t sent = send(current_fd, client.getBuffer() + client.getFileOffset() ,client.getFileSize() - client.getFileOffset(), 0);
+    ssize_t sent = send(current_fd, client.getBuffer() + client.getFileOffset() ,client.getFileSize() - client.getFileOffset(), MSG_NOSIGNAL);
     if (sent <= 0)
     {
         finishResponse(clients, current_fd, epoll_fd);
@@ -247,7 +254,7 @@ static std::map<int, const ServerConfig*> setupListenSockets(const Config &confi
 
     for (size_t i = 0; i < config.size(); ++i)
     {
-        int fd = socket(AF_INET, SOCK_STREAM, 0);
+        int fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
         if (fd == -1)
         {
             std::cout << "FAILURE CREATE SOCKET" << std::endl;
@@ -278,6 +285,7 @@ int main(int argc, char **argv)
 {
     signal(SIGINT, signalHandler);
 
+	signal(SIGPIPE, SIG_IGN); 
     // si se hace send() a un socket que ya cerró la conexion el kernel devuelve SIGPIPE que mata todo el proceso.
 
 
@@ -291,11 +299,13 @@ int main(int argc, char **argv)
         std::cout << "FAILURE EPOLL\n";
         exit(EXIT_FAILURE);
     }
-
     std::map<int, const ServerConfig*> listenFds = setupListenSockets(config, epoll_fd);
 
     epoll_event events[1024];
     std::map<int, Client> clients;
+    std::map<int, CgiProcess> cgiByReadFd;
+	std::map<int, int> writeFdToReadFd;
+	
     while (running)
     {
         int n = epoll_wait(epoll_fd, events, 1024, 1000);
@@ -311,20 +321,35 @@ int main(int argc, char **argv)
         {
             dummy,
             dummy, // el indice 1 (nueva conexion) se maneja aparte con createClient, porque necesita listenFds
-            reciveRequest,
+            dummy, // deprecated -> reciveRequest ya no tiene la misma signature
             sendResponse,
             close_conection
         };
         for (int i = 0; i < n; i++)
         {
             int current_fd = events[i].data.fd;
-            size_t index = calculate_index(current_fd, listenFds, events[i]);
-            if (index == 1)
-                createClient(clients, current_fd, epoll_fd, listenFds);
-            else
-                functions[index](clients, current_fd, epoll_fd);
-        }
-    }
+            
+            if (cgiByReadFd.find(current_fd) != cgiByReadFd.end())
+			{
+				handleCgiRead(clients, cgiByReadFd, writeFdToReadFd, current_fd, epoll_fd);
+				continue;
+			}
+			if (writeFdToReadFd.find(current_fd) != writeFdToReadFd.end())
+			{
+				handleCgiWrite(clients, cgiByReadFd, writeFdToReadFd, current_fd, epoll_fd);
+				continue;
+			}
+
+			size_t index = calculate_index(current_fd, listenFds, events[i]);
+			if (index == 1)
+				createClient(clients, current_fd, epoll_fd, listenFds);
+			else if (index == 2)
+				reciveRequest(clients, current_fd, epoll_fd, cgiByReadFd, writeFdToReadFd);
+			else
+				functions[index](clients, current_fd, epoll_fd);
+		}
+	}
+    killAllCgi(cgiByReadFd, writeFdToReadFd);
     close(epoll_fd);
     for (std::map<int, const ServerConfig*>::iterator it = listenFds.begin(); it != listenFds.end(); ++it)
         close(it->first);
