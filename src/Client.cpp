@@ -243,10 +243,9 @@ void Client::parseRequest()
 
         if (chunkSize == 0)
         {
-            recv_buffer.erase(0, pos + 2);
-            if (recv_buffer.size() < 2)
+            if (recv_buffer.size() < pos + 4) // FIX: esperar a tener "0\r\n\r\n" completo ANTES de borrar nada
                 return;
-            recv_buffer.erase(0, 2);
+            recv_buffer.erase(0, pos + 4);
 
             setRecuestBody(_chunkedBody);
             _parseState = DONE;
