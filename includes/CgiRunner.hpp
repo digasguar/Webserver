@@ -1,6 +1,8 @@
 #ifndef CGIRUNNER_HPP
 # define CGIRUNNER_HPP
 
+#define CGI_TIMEOUT 30 // segundos maximos que puede tardar un CGI antes de matarlo y responder 504
+
 #include <map>
 #include "Client.hpp"
 #include "ConfigTypes.hpp"
@@ -17,6 +19,9 @@ void handleCgiWrite(std::map<int, Client> &clients, std::map<int, CgiProcess> &c
 void handleCgiRead(std::map<int, Client> &clients, std::map<int, CgiProcess> &cgiByReadFd,
                     std::map<int, int> &writeFdToReadFd, int read_fd, int epoll_fd);
                     
+void reapDeadOrSlowCgi(std::map<int, Client> &clients, std::map<int, CgiProcess> &cgiByReadFd,
+					std::map<int, int> &writeFdToReadFd, int epoll_fd);
+
 void killAllCgi(std::map<int, CgiProcess> &cgiByReadFd, std::map<int, int> &writeFdToReadFd);
 
 #endif

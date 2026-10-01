@@ -11,6 +11,7 @@
 #define DEFAULT_CONFIG_PATH "./config/default.conf"
 
 volatile sig_atomic_t running = 1;
+std::set<int> g_touchedFds;
 
 void createClient(std::map<int, Client> &clients, int fd, int epoll_fd, const std::map<int, const ServerConfig*> &listenFds)
 {
@@ -26,7 +27,8 @@ void createClient(std::map<int, Client> &clients, int fd, int epoll_fd, const st
         if (fd_client < 0)
             break;
         fcntl(fd_client, F_SETFL, O_NONBLOCK);
-
+		g_touchedFds.insert(fd_client);
+		
         clients.insert(std::make_pair(fd_client, Client(fd_client, serverConfig)));
 
         epoll_event client_event;
@@ -303,15 +305,16 @@ int main(int argc, char **argv)
 	
     while (running)
     {
+		g_touchedFds.clear();
+    	
         int n = epoll_wait(epoll_fd, events, 1024, 1000);
+        
+		checkClientTimeut(clients, epoll_fd);
+		reapDeadOrSlowCgi(clients, cgiByReadFd, writeFdToReadFd, epoll_fd);
+        
         if (n <= 0)
             continue;
-        if (n == -1)
-        {
-            perror("epoll wait");
-            exit(EXIT_FAILURE);
-        }
-        checkClientTimeut(clients, epoll_fd);
+
         void (*functions[])(std::map<int, Client> &, int, int) =
         {
             dummy,
@@ -323,6 +326,9 @@ int main(int argc, char **argv)
         for (int i = 0; i < n; i++)
         {
             int current_fd = events[i].data.fd;
+            
+            if (g_touchedFds.count(current_fd))
+				continue; // evento viejo de un fd que ya se cerro/recreo en esta vuelta
             
             if (cgiByReadFd.find(current_fd) != cgiByReadFd.end())
 			{

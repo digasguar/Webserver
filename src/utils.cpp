@@ -21,7 +21,7 @@ void close_conection(std::map<int, Client> &clients, int current_fd, int epoll_f
     if (it != clients.end() && it->second.getFileFd() != -1)
         close(it->second.getFileFd());
     epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL);
-    close(current_fd);
+    closeTracked(current_fd);
     if (it != clients.end())
         clients.erase(it);
 }

@@ -328,7 +328,7 @@ bool requestGet(Client *client, const LocationConfig &loc, int epoll_fd, std::ma
 		    typeFile = it->second;
 	}
 	/////////////////
-	int file = open(filePath.c_str(), O_RDONLY | O_CLOEXEC);
+	int file = open(filePath.c_str(), O_RDONLY | O_CLOEXEC | O_NONBLOCK); // FIX: O_NONBLOCK para que un FIFO sin escritor no bloquee todo el servidor en open()
     struct stat st;
     if (file < 0)
     {
