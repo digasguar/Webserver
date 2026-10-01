@@ -1,6 +1,7 @@
 #ifndef CLIENT_HPP
 # define CLIENT_HPP
 #include <string>
+#include <vector>
 #include "Librari.hpp"
 #include "HttpRequest.hpp"
 #define MAX_BODY_SIZE 1024 * 1024 * 10  // 10MB, fallback defensivo si _serverConfig fuera NULL (no deberia pasar nunca)
@@ -46,7 +47,7 @@ private:
 
     off_t _fileSize; // cuanto pesa el archivo
 
-    char _buffer[4096]; // el contenido del archivo
+    std::vector<char> _buffer; // el contenido del archivo (crece si el body de un CGI pasa de 4096)
 
     off_t _fileOffset;// por donde nos hemos quedado del archivo
 

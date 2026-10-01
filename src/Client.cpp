@@ -81,9 +81,9 @@ void Client::setFileSize(const size_t size){this->_fileSize = size;}
  // entonces se cambia sin problemas
 void Client::setBuffer(const char *buffer, size_t size)
 {
-    if (size > sizeof(this->_buffer))
-        size = sizeof(this->_buffer);
-    std::copy(buffer, buffer + size, this->_buffer);
+    if (size > this->_buffer.size())
++        this->_buffer.resize(size);   // antes se truncaba a 4096 y send() leia fuera del buffer
++    std::copy(buffer, buffer + size, this->_buffer.begin());
 }
 
 void Client::setKeepAlive(const bool k){this->_keep_alive = k;}
@@ -92,7 +92,7 @@ void Client::setEpollEvent(const struct epoll_event &ep){this->_ep = ep;}
 
 size_t Client::getHeaderOffset(){return this->_headerOffset;}
 
-char * Client::getBuffer(){return(this->_buffer);}
+char * Client::getBuffer(){return(&this->_buffer[0]);}
 
 off_t Client::getFileOffset(){return this->_fileOffset;}
 
@@ -294,6 +294,8 @@ void Client::resetRequest()
     this->_ep.events = EPOLLIN;
     this->_chunkedBody.clear();
     this->_parseError = 0;
+    if (this->_buffer.size() > 4096)
+		std::vector<char>(4096).swap(this->_buffer);
 }
 
 void Client::updateActivity(){this->_last_activity = time(NULL);}
