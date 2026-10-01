@@ -614,18 +614,13 @@ bool Procesrequest(Client * client, int epoll_fd, std::map<int, CgiProcess> &cgi
 {
 	if (client->getParseError() != 0)
     {
-        std::string status, body;
-
-        if (client->getParseError() == 411)
-        {
-            status = "411 Length Required";
-            body = "Length Required";
-        }
-        else if (client->getParseError() == 413)
-        {
-            status = "413 Payload Too Large";
-            body = "Payload Too Large";
-        }
+        std::stringstream code;
+        code << client->getParseError();
+        std::string body = statusMessage(code.str()); // 400, 411, 413, 414, 431, 501, 505...
+        std::string status = code.str() + " " + body;
+ 
+        // tras una peticion rota ya no se sabe donde acaba (body sin leer, framing dudoso): se cierra al terminar la respuesta
+        client->setKeepAlive(false);
 
         client->setResponseHeaders(createHeadersLength("text/plain", status, body.size(), client->getKeepAlive()));
         client->setBuffer(body.c_str(), body.size());
