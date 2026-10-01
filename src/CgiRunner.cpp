@@ -285,10 +285,10 @@ void killAllCgi(std::map<int, CgiProcess> &cgiByReadFd, std::map<int, int> &writ
     {
 		kill(it->second.pid, SIGKILL);
 		waitpid(it->second.pid, NULL, 0); // tras SIGKILL no bloquea; evita zombies
-		closeTracked(it->first)
+		closeTracked(it->first);
     }
     for (std::map<int, int>::iterator it = writeFdToReadFd.begin(); it != writeFdToReadFd.end(); ++it)
-		closeTracked(it->first)
+		closeTracked(it->first);
     cgiByReadFd.clear();
     writeFdToReadFd.clear();
 }

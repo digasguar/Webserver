@@ -47,6 +47,7 @@ Client::Client(int socket, const ServerConfig *serverConfig): _socket(socket), _
     this->_keep_alive = true;
     this->_parseError = 0;
     this->_last_activity = std::time(NULL);
+    this->_buffer.resize(4096);
 };
 
 int Client::getSocket(){ return (this->_socket); };
@@ -82,8 +83,8 @@ void Client::setFileSize(const size_t size){this->_fileSize = size;}
 void Client::setBuffer(const char *buffer, size_t size)
 {
     if (size > this->_buffer.size())
-+        this->_buffer.resize(size);   // antes se truncaba a 4096 y send() leia fuera del buffer
-+    std::copy(buffer, buffer + size, this->_buffer.begin());
+		this->_buffer.resize(size);   // antes se truncaba a 4096 y send() leia fuera del buffer
+	std::copy(buffer, buffer + size, this->_buffer.begin());
 }
 
 void Client::setKeepAlive(const bool k){this->_keep_alive = k;}
@@ -92,7 +93,12 @@ void Client::setEpollEvent(const struct epoll_event &ep){this->_ep = ep;}
 
 size_t Client::getHeaderOffset(){return this->_headerOffset;}
 
-char * Client::getBuffer(){return(&this->_buffer[0]);}
+char * Client::getBuffer()
+{
+	if (this->_buffer.size() < 4096)   //Failsafe: nunca devolver un puntero a un vector vacio
+		this->_buffer.resize(4096);
+	return(&this->_buffer[0]);
+}
 
 off_t Client::getFileOffset(){return this->_fileOffset;}
 
