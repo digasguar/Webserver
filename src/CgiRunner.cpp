@@ -175,27 +175,24 @@ void handleCgiRead(std::map<int, Client> &clients, std::map<int, CgiProcess> &cg
 		    }
 		}
 		if (crashed && proc.outputSoFar.empty())
+		    setErrorResponse(&client, 502, "the CGI script failed"); // error_page 502 si esta configurada
+		else
 		{
-		    statusLine = "502 Bad Gateway";
-		    cgiBody = "502 Bad Gateway: the CGI script failed";
-		    keptHeaders = "Content-Type: text/plain\r\n";
+			std::stringstream response;
+			response << "HTTP/1.1 " << statusLine << "\r\n";
+			response << keptHeaders;
+
+			response << "Content-Length: " << cgiBody.size() << "\r\n";
+			response << (client.getKeepAlive() ? "Connection: keep-alive\r\n" : "Connection: close\r\n");
+			response << "\r\n";
+
+			client.setResponseHeaders(response.str());
+			client.setBuffer(cgiBody.c_str(), cgiBody.size());
+			client.setFileOffset(0);
+			client.setIsRegularFile(true);
+			client.setFileSize(cgiBody.size());
+			client.setFileFd(-1);
 		}
-
-
-		std::stringstream response;
-		response << "HTTP/1.1 " << statusLine << "\r\n";
-		response << keptHeaders;
-
-		response << "Content-Length: " << cgiBody.size() << "\r\n";
-		response << (client.getKeepAlive() ? "Connection: keep-alive\r\n" : "Connection: close\r\n");
-		response << "\r\n";
-
-		client.setResponseHeaders(response.str());
-		client.setBuffer(cgiBody.c_str(), cgiBody.size());
-		client.setFileOffset(0);
-		client.setIsRegularFile(true);
-		client.setFileSize(cgiBody.size());
-		client.setFileFd(-1);
 
 		epoll_event response_event;
 		response_event.data.fd = proc.clientFd;
@@ -258,18 +255,9 @@ void reapDeadOrSlowCgi(std::map<int, Client> &clients, std::map<int, CgiProcess>
         std::map<int, Client>::iterator c = clients.find(proc.clientFd);
         if (c != clients.end() && c->second.getSerial() == proc.clientSerial)
         {
-            std::string body = "504 Gateway Timeout";
-            std::stringstream h;
-            h << "HTTP/1.1 504 Gateway Timeout\r\nContent-Type: text/plain\r\nContent-Length: " << body.size()
-              << "\r\nConnection: close\r\n\r\n";
             Client &client = c->second;
             client.setKeepAlive(false);
-            client.setResponseHeaders(h.str());
-            client.setBuffer(body.c_str(), body.size());
-            client.setFileOffset(0);
-            client.setIsRegularFile(true);
-            client.setFileSize(body.size());
-            client.setFileFd(-1);
+            setErrorResponse(&client, 504); // error_page 504 si esta configurada
             epoll_event ev;
             ev.data.fd = proc.clientFd;
             ev.events = EPOLLOUT;

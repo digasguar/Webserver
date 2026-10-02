@@ -259,6 +259,70 @@ static std::string stripLocationPrefix(const std::string &path, const std::strin
 }
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
+// Respuesta de error UNICA para todo el servidor. Antes cada sitio armaba la suya a mano y solo el 404 miraba error_page.
+//   1. Si el server tiene "error_page <code> <fichero>" y el fichero se puede abrir (fichero regular) -> se sirve ese fichero (text/html).
+//   2. Si no, y se pasa fallbackPage (el 404 de requestGet usa <root>/404.html) -> se prueba ese.
+//   3. Si no, cuerpo de texto plano "<code> <mensaje>[: detail]".
+// extraHeaders son lineas ya terminadas en \r\n (p.ej. "Allow: GET, POST\r\n" en el 405).
+void setErrorResponse(Client *client, int code, const std::string &detail,
+                      const std::string &extraHeaders, const std::string &fallbackPage)
+{
+    std::stringstream codeStream;
+    codeStream << code;
+    const std::string message = statusMessage(codeStream.str());
+    const std::string status = codeStream.str() + " " + message;
+    const std::string connection = client->getKeepAlive() ? "Connection: keep-alive\r\n" : "Connection: close\r\n";
+
+    client->setFileOffset(0);
+    client->setIsRegularFile(true);
+    client->setFileSize(0);
+
+    std::string pagePath;
+    const ServerConfig *server = client->getServerConfig();
+    if (server != NULL)
+    {
+        std::map<int, std::string>::const_iterator it = server->errorPages.find(code);
+        if (it != server->errorPages.end())
+            pagePath = it->second;
+    }
+    for (int attempt = 0; attempt < 2; ++attempt)
+    {
+        const std::string &candidate = (attempt == 0) ? pagePath : fallbackPage;
+        if (candidate.empty())
+            continue ;
+        int fd = open(candidate.c_str(), O_RDONLY | O_CLOEXEC | O_NONBLOCK);
+        if (fd < 0)
+            continue ;
+        struct stat st;
+        if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode))
+        {
+            close(fd);
+            continue ;
+        }
+        std::stringstream headers;
+        headers << "HTTP/1.1 " << status << "\r\n"
+                << "Content-Type: text/html\r\n"
+                << "Content-Length: " << st.st_size << "\r\n"
+                << extraHeaders << connection << "\r\n";
+        client->setResponseHeaders(headers.str());
+        client->setFileFd(fd);
+        return ;
+    }
+
+    std::string body = status;
+    if (!detail.empty())
+        body += ": " + detail;
+    std::stringstream headers;
+    headers << "HTTP/1.1 " << status << "\r\n"
+            << "Content-Type: text/plain\r\n"
+            << "Content-Length: " << body.size() << "\r\n"
+            << extraHeaders << connection << "\r\n";
+    client->setResponseHeaders(headers.str());
+    client->setBuffer(body.c_str(), body.size());
+    client->setFileSize(body.size());
+    client->setFileFd(-1);
+}
+
 bool requestGet(Client *client, const LocationConfig &loc, int epoll_fd, std::map<int, CgiProcess> &cgiByReadFd, std::map<int, int> &writeFdToReadFd)
 {
     std::string path = client->getRequest().path;
@@ -271,24 +335,12 @@ bool requestGet(Client *client, const LocationConfig &loc, int epoll_fd, std::ma
     {
         // la propia location no tiene una carpeta real detras (config mal hecha
         // o location "virtual"). nginx trata esto igual que "archivo no encontrado".
-        std::string body = "Not Found";
-        client->setResponseHeaders(createHeadersLength("text/plain", "404", body.size(), client->getKeepAlive()));
-        client->setBuffer(body.c_str(), body.size());
-        client->setFileOffset(0);
-        client->setIsRegularFile(true);
-        client->setFileSize(body.size());
-        client->setFileFd(-1);
+        setErrorResponse(client, 404);
         return (true);
     }
     if (!isPathWithinRoot(filePath, loc.root + loc.path))
 	{
-		std::string body = "Forbidden";
-		client->setResponseHeaders(createHeadersLength("text/plain", "403 Forbidden", body.size(), client->getKeepAlive()));
-		client->setBuffer(body.c_str(), body.size());
-		client->setFileOffset(0);
-		client->setIsRegularFile(true);
-		client->setFileSize(body.size());
-		client->setFileFd(-1);
+		setErrorResponse(client, 403);
 		return (true);
 	}
     //////////////////////////////////
@@ -341,36 +393,8 @@ bool requestGet(Client *client, const LocationConfig &loc, int epoll_fd, std::ma
     {
         close(file); // medidas extra de precaucion, por si acaso
 
-		std::string errorPagePath = loc.root + "/404.html"; // fallback si el server no define un error_page para 404
-		const ServerConfig *server = client->getServerConfig();
-		if (server != NULL)
-		{
-			std::map<int, std::string>::const_iterator errIt = server->errorPages.find(404);
-			if (errIt != server->errorPages.end())
-				errorPagePath = errIt->second;
-		}
-		struct stat errSt;
-		memset(&errSt, 0, sizeof(errSt)); // inicializarlo en cero para que luego no pille valore basura
-
-		int errorfd = open(errorPagePath.c_str(), O_RDONLY | O_CLOEXEC);
-		if (errorfd >= 0 && stat(errorPagePath.c_str(), &errSt) == 0 && S_ISREG(errSt.st_mode))
-		{
-			client->setResponseHeaders(createHeadersLength("text/html", "404", errSt.st_size, client->getKeepAlive()));
-			client->setFileFd(errorfd);
-		}
-		else
-		{
-			// por si acaso la pagina de 404 no se puede cargar o desaparece, ara que no pete
-			if (errorfd >= 0)
-				close(errorfd);
-			std::string body = "Not Found";
-			client->setResponseHeaders(createHeadersLength("text/plain", "404", body.size(), client->getKeepAlive()));
-			client->setBuffer(body.c_str(), body.size());
-			client->setFileOffset(0);
-			client->setIsRegularFile(true);
-			client->setFileSize(body.size());
-			client->setFileFd(-1);
-		}
+		// error_page 404 del server; si no esta, <root>/404.html; si tampoco, texto plano (todo dentro de setErrorResponse)
+		setErrorResponse(client, 404, "", "", loc.root + "/404.html");
 		return (true);
     }
     stat(filePath.c_str(), &st);
@@ -414,13 +438,7 @@ bool requestGet(Client *client, const LocationConfig &loc, int epoll_fd, std::ma
 		    return (true);
 		}
 
-		std::string body = "Forbidden";
-		client->setResponseHeaders(createHeadersLength("text/plain", "403 Forbidden", body.size(), client->getKeepAlive()));
-		client->setBuffer(body.c_str(), body.size());
-		client->setFileOffset(0);
-		client->setIsRegularFile(true);
-		client->setFileSize(body.size());
-		client->setFileFd(-1);
+		setErrorResponse(client, 403);
 		return (true);
 	}
     ///////////////////////////////////////////////////////////////////////////////
@@ -460,12 +478,7 @@ bool requestPost(Client *client, const LocationConfig &loc, int epoll_fd, std::m
     client->setFileFd(-1);
     if (!isCreateTargetWithinRoot(filePath, targetRoot)) //cambiado de path.find("../")
     {
-        std::string body = "Forbidden";
-        client->setResponseHeaders(createHeadersLength("text/plain", "403 Forbidden", body.size(), client->getKeepAlive()));
-        client->setBuffer(body.c_str(), body.size());
-        client->setFileSize(body.size());
-        client->setFileOffset(0);
-        client->setIsRegularFile(true);
+        setErrorResponse(client, 403);
         return (true);
     }
     struct stat st;
@@ -476,8 +489,8 @@ bool requestPost(Client *client, const LocationConfig &loc, int epoll_fd, std::m
 
     if (!file.is_open())
     {
-        body = "Could not write file";
-        status = "500 Internal Server Error";
+        setErrorResponse(client, 500, "Could not write file");
+        return (true);
     }
     else
     {
@@ -509,41 +522,45 @@ void requestDelete(Client *client, const LocationConfig &loc)
     std::string body;
     std::string status;
 
+    int errCode = 0;
+    std::string detail;
+
     client->setFileFd(-1);
     char realBoundary[PATH_MAX];
     if (realpath((loc.root + loc.path).c_str(), realBoundary) == NULL)
     {
-        body = "Not Found";
-        status = "404";
+        errCode = 404;
     }
     else if (!isPathWithinRoot(filePath, loc.root + loc.path)) //cambiado de path.find("../")
     {
-        body = "Forbidden";
-        status = "403 Forbidden";
+        errCode = 403;
     }
     else
     {
         struct stat st;
         if (stat(filePath.c_str(), &st) != 0)
         {
-            body = "Not Found";
-            status = "404 Not Found";
+            errCode = 404;
         }
         else if (!S_ISREG(st.st_mode))
         {
-            body = "Forbidden";
-            status = "403 Forbidden";
+            errCode = 403;
         }
         else if (std::remove(filePath.c_str()) != 0)
         {
-            body = "Could not delete file";
-            status = "500 Internal Server Error";
+            errCode = 500;
+            detail = "Could not delete file";
         }
         else
         {
             body = "Deleted";
             status = "200 OK";
         }
+    }
+    if (errCode != 0)
+    {
+        setErrorResponse(client, errCode, detail);
+        return ;
     }
     client->setResponseHeaders(createHeadersLength("text/plain",status, body.size(), client->getKeepAlive()));
     client->setBuffer(body.c_str(),body.size());
@@ -556,8 +573,6 @@ void requestDelete(Client *client, const LocationConfig &loc)
 //hay que listar los metodos si permitidos por eso armamos el header asi. 
 void requestNotAllowed(Client *client, const LocationConfig &loc)
 {
-    std::string body = "405 Method Not Allowed";
-
     std::string allowList;
     for (size_t i = 0; i < loc.methods.size(); ++i)
     {
@@ -566,19 +581,8 @@ void requestNotAllowed(Client *client, const LocationConfig &loc)
         allowList += loc.methods[i];
     }
 
-    std::stringstream headers;
-    headers << "HTTP/1.1 405 Method Not Allowed\r\n"
-            << "Content-Type: text/plain\r\n"
-            << "Content-Length: " << body.size() << "\r\n"
-            << "Allow: " << allowList << "\r\n"//solo por esto esta hardcodeado.
-            << (client->getKeepAlive() ? "Connection: keep-alive\r\n" : "Connection: close\r\n")
-            << "\r\n";
-
-    client->setResponseHeaders(headers.str());
-    client->setBuffer(body.c_str(),body.size());
-    client->setFileOffset(0);
-    client->setIsRegularFile(true);
-    client->setFileSize(body.size());
+    // "Allow" es lo unico especifico del 405; el resto lo monta setErrorResponse (y respeta error_page 405)
+    setErrorResponse(client, 405, "", "Allow: " + allowList + "\r\n");
 }
 ///////////////////////
 // 501: el metodo no es uno de los que este servidor sabe manejar EN NINGUN sitio
@@ -591,12 +595,7 @@ static bool isKnownMethod(const std::string &method)
 
 void requestNotImplemented(Client *client)
 {
-    std::string body = "501 Not Implemented";
-    client->setResponseHeaders(createHeadersLength("text/plain", "501 Not Implemented", body.size(), client->getKeepAlive()));
-    client->setBuffer(body.c_str(), body.size());
-    client->setFileOffset(0);
-    client->setIsRegularFile(true);
-    client->setFileSize(body.size());
+    setErrorResponse(client, 501);
 }
 ///////////////////////
 
@@ -648,19 +647,9 @@ bool Procesrequest(Client * client, int epoll_fd, std::map<int, CgiProcess> &cgi
 {
 	if (client->getParseError() != 0)
     {
-        std::stringstream code;
-        code << client->getParseError();
-        std::string body = statusMessage(code.str()); // 400, 411, 413, 414, 431, 501, 505...
-        std::string status = code.str() + " " + body;
- 
         // tras una peticion rota ya no se sabe donde acaba (body sin leer, framing dudoso): se cierra al terminar la respuesta
         client->setKeepAlive(false);
-
-        client->setResponseHeaders(createHeadersLength("text/plain", status, body.size(), client->getKeepAlive()));
-        client->setBuffer(body.c_str(), body.size());
-        client->setFileOffset(0);
-        client->setIsRegularFile(true);
-        client->setFileSize(body.size());
+        setErrorResponse(client, client->getParseError()); // 400, 411, 413, 414, 431, 501, 505...
         return (true);
     }
 
@@ -682,13 +671,7 @@ bool Procesrequest(Client * client, int epoll_fd, std::map<int, CgiProcess> &cgi
 
     if (loc == NULL)
     {
-        std::string body = "Not Found";
-        client->setResponseHeaders(createHeadersLength("text/plain", "404 Not Found", body.size(), client->getKeepAlive()));
-        client->setBuffer(body.c_str(), body.size());
-        client->setFileOffset(0);
-        client->setIsRegularFile(true);
-        client->setFileSize(body.size());
-        client->setFileFd(-1);
+        setErrorResponse(client, 404);
         return (true);
     }
 
