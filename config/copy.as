@@ -8,17 +8,12 @@ server {
     listen 8080;
     client_max_body_size 10gb;
     error_page 404 ./html/404.html;
-    error_page 405 ./html/405.html;
 
     location / {
-        root ./html;
+        root ./html
         index index.html;
         methods GET;
         autoindex off;
-    }
-
-    location /notAllowed {
-        methods POST;
     }
 
     location /oldpage.html {
@@ -31,19 +26,6 @@ server {
         upload_store ./html/uploads;
         autoindex on;
     }
-
-    location /feed.html {
-        root ./html;
-        methods GET;
-        autoindex off;
-    }
-
-    location /cgi-bin {
-    root ./html;
-    methods GET POST;
-    cgi_extension .py /usr/bin/python3;
-    cgi_extension .sh /usr/bin/bash;
-	}
 }
 
 server {
@@ -68,11 +50,4 @@ server {
         upload_store ./html/uploads;
         autoindex on;
     }
-    
-    location /cgi-bin {
-    root ./html;
-    methods GET POST;
-    cgi_extension .py /usr/bin/python3;
-    cgi_extension .sh /usr/bin/bash;
-	}
 }

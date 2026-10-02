@@ -3,6 +3,7 @@
 
 #include <string>
 #include <sys/types.h>
+#include <ctime>
 #include "HttpRequest.hpp"
 
 struct CgiProcess
@@ -15,8 +16,10 @@ struct CgiProcess
     size_t bodyBytesSent;
     std::string outputSoFar;
     bool  finished;
+    
+    time_t startTime;
 
-    CgiProcess() : pid(-1), writeFd(-1), readFd(-1), clientFd(-1), clientSerial(0), bodyBytesSent(0), finished(false) {}
+    CgiProcess() : pid(-1), writeFd(-1), readFd(-1), clientFd(-1), clientSerial(0), bodyBytesSent(0), finished(false), startTime(0) {}
 };
 
 bool startCgi(const HttpRequesr &request, const std::string &scriptPath,
