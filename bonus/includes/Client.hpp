@@ -1,10 +1,16 @@
 #ifndef CLIENT_HPP
 # define CLIENT_HPP
 #include <string>
+#include <vector>
 #include "Librari.hpp"
 #include "HttpRequest.hpp"
 #define MAX_BODY_SIZE 1024 * 1024 * 10  // 10MB, fallback defensivo si _serverConfig fuera NULL (no deberia pasar nunca)
 #define CLIENT_TIMEOUT 120 //tiempo para el timeut por inactividad (igual que el keepalive_timeout por defecto de nginx)
+#define MAX_PIPELINE_BUFFER 65536 // lo maximo que se guarda de peticiones que llegan mientras se atiende otra
+
+#define MAX_REQUEST_LINE 8192   // request-line mas larga aceptada -> 414 (nginx: 8k)
+#define MAX_HEADER_BYTES 16384  // request-line + todas las cabeceras -> 431
+#define MAX_HEADER_COUNT 100    // numero maximo de cabeceras -> 431
 
 struct ServerConfig;
 
@@ -37,6 +43,8 @@ private:
     ParseState _parseState;
 
     int _parseError;
+    
+    size_t _headerBytes; // bytes que llevan gastados la request-line + cabeceras de la peticion en curso
 
     std::string _responseHeaders; //los headers de la respuesta
 
@@ -46,7 +54,7 @@ private:
 
     off_t _fileSize; // cuanto pesa el archivo
 
-    char _buffer[4096]; // el contenido del archivo
+    std::vector<char> _buffer; // el contenido del archivo (crece si el body de un CGI pasa de 4096)
 
     off_t _fileOffset;// por donde nos hemos quedado del archivo
 
@@ -59,6 +67,8 @@ private:
     struct epoll_event _ep;
 
     time_t _last_activity;
+    
+    unsigned long _serial;
 
     const ServerConfig *_serverConfig; // a que ServerConfig pertenece esta conexion, para el lookup de location
 
@@ -98,13 +108,21 @@ public:
     bool isRequestComplete();
     void setParseError(int code);
     int  getParseError();
+    void failParse(int code); // marca error de parseo y da la peticion por terminada
     
     void setRequestQuery(const std::string &query);
+    void setRequestPathInfo(const std::string &pathInfo);
+    void setRemoteAddr(const std::string &addr);
 
     void updateActivity();
     time_t getLastActivity() const;
+    
+    unsigned long getSerial() const;
 
     bool hasValidSesion(CookiesManager &cookieManager);
+
+	bool _pipelined; // al acabar la respuesta anterior ya habia otra peticion COMPLETA en recv_buffer
+	bool takePipelined(); // devuelve _pipelined y lo pone a false
 
     Client(int socket, const ServerConfig *serverConfig);
     ~Client();

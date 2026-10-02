@@ -11,11 +11,18 @@
 #include <algorithm>
 #include <cctype>
 
-std::string createHeadersLength(const std::string type, const std::string status, size_t length, bool keep_alive)
+std::string createHeadersLength(const std::string type, const std::string statusIn, size_t length, bool keep_alive)
 {
     std::stringstream ss;
     ss << length;
-
+	
+	// varios llamadores pasan solo el codigo ("200", "404")
+	// se completa con el texto, que si no la linea de estado
+    // antes salia solo como "HTTP/1.1 200" (sin reason-phrase)
+    std::string status = statusIn;
+    if (status.size() == 3 && status.find_first_not_of("0123456789") == std::string::npos)
+        status += " " + statusMessage(status);
+	
     if (!keep_alive)
         return ("HTTP/1.1 " + status + "\r\n"
             "Content-Type: " + type + "\r\n"
@@ -44,7 +51,8 @@ std::string createChunkedHeader(const std::string type, const std::string status
             "\r\n");
 }
 
-std::string createRedirectHeader(const std::string &location, bool keep_alive)
+// en general para las redirecciones (ha surgido de un bug al hacer GET a un directorio)
+std::string createRedirectHeader(const std::string &location, bool keep_alive) // para cuando la ruta del directorio no acaba en "/", le decimos al cliente que la buena es con "/" y le redirigimos
 {
     if (!keep_alive)
         return ("HTTP/1.1 301 Moved Permanently\r\n"
@@ -91,6 +99,10 @@ std::string createAuthRedirectWithCookie(const std::string &location, const std:
             "\r\n");
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// creamos un index.html que iría en el directorio objetivo, pero las tripas las hacemos un string a secas,
+// y en lugar de cagarlo en el directorio, lo guardamos en un tempfile, que luego se borrará, ara que no quede rastro
+
 struct DirEntry
 {
     std::string name;
@@ -100,9 +112,12 @@ struct DirEntry
 static bool compareDirEntries(const DirEntry &a, const DirEntry &b)
 {
     if (a.isDir != b.isDir)
-        return (a.isDir);
-    return (a.name < b.name);
+        return (a.isDir); // directories first
+    return (a.name < b.name); // alphabetical within the same type
 }
+
+////////////////////////////
+//para el HTML escaping (portegerlo para que no haya injections ni nada)
 
 static std::string htmlEscape(const std::string &s)
 {
@@ -121,6 +136,7 @@ static std::string htmlEscape(const std::string &s)
     return (out);
 }
 
+// encodea un filename para que se pueda meter en la URL sin que explote nada
 static std::string urlEncode(const std::string &s)
 {
     static const char *hexDigits = "0123456789ABCDEF";
@@ -139,6 +155,8 @@ static std::string urlEncode(const std::string &s)
     }
     return (out);
 }
+
+/////////////////////////////
 
 std::string generateAutoindexHTML(const std::string &dirFsPath, const std::string &urlPath)
 {
@@ -175,9 +193,9 @@ std::string generateAutoindexHTML(const std::string &dirFsPath, const std::strin
     html << "<h1>Index of " << htmlEscape(urlPath) << "</h1><ul>";
     for (size_t i = 0; i < entries.size(); ++i)
     {
-        std::string suffix = entries[i].isDir ? "/" : "";
-        html << "<li><a href=\"" << urlEncode(entries[i].name) << suffix << "\">"
-            << htmlEscape(entries[i].name) << suffix << "</a></li>";
+		std::string suffix = entries[i].isDir ? "/" : "";
+		html << "<li><a href=\"" << urlEncode(entries[i].name) << suffix << "\">" //para la URL
+			<< htmlEscape(entries[i].name) << suffix << "</a></li>"; //el texto que se muestra en la pagina
     }
     html << "</ul></body></html>";
     return (html.str());
@@ -189,41 +207,71 @@ int writeAutoindexToTempFile(const std::string &html)
     int fd = mkstemp(tmpPath);
     if (fd < 0)
         return (-1);
-
     ssize_t written = write(fd, html.c_str(), html.size());
-    if (written < 0 || static_cast<size_t>(written) != html.size())
-    {
-        unlink(tmpPath);
-        close(fd);
-        return (-1);
-    }
+	if (written < 0 || static_cast<size_t>(written) != html.size())
+	{
+		unlink(tmpPath);
+		close(fd);
+		return (-1);
+	}
     unlink(tmpPath);
     lseek(fd, 0, SEEK_SET);
     return (fd);
 }
 
+/////////////////////////////////////////////////////////////////////////////////////////////////
+
+static std::string normalizePath(const std::string &path)
+{
+    std::vector<std::string> parts;
+    std::stringstream ss(path);
+    std::string segment;
+    bool isAbsolute = !path.empty() && path[0] == '/';
+
+    while (std::getline(ss, segment, '/'))
+    {
+        if (segment.empty() || segment == ".")
+            continue;
+        if (segment == "..")
+        {
+            if (!parts.empty() && parts.back() != "..")
+                parts.pop_back();
+            else if (!isAbsolute)
+                parts.push_back(segment);
+        }
+        else
+            parts.push_back(segment);
+    }
+    std::string result = isAbsolute ? "/" : "";
+    for (size_t i = 0; i < parts.size(); ++i)
+    {
+        if (i > 0)
+            result += "/";
+        result += parts[i];
+    }
+    if (result.empty())
+        result = isAbsolute ? "/" : ".";
+    return (result);
+}
+
+
+// para manejar el .. y que no se salga dela carpeta ./html, o la que sea ene l config
+// GET y DELETE
 static bool isPathWithinRoot(const std::string &fsPath, const std::string &root)
 {
-    char realRoot[PATH_MAX];
-    char realTarget[PATH_MAX];
+    std::string normRoot = normalizePath(root);
+    std::string normTarget = normalizePath(fsPath);
 
-    if (realpath(root.c_str(), realRoot) == NULL)
-        return false;
-    if (realpath(fsPath.c_str(), realTarget) == NULL)
+    if (normTarget == normRoot)
         return true;
-
-    std::string realRootStr(realRoot);
-    std::string realTargetStr(realTarget);
-
-    if (realTargetStr == realRootStr)
-        return true;
-    if (realTargetStr.size() > realRootStr.size() &&
-        realTargetStr.compare(0, realRootStr.size(), realRootStr) == 0 &&
-        realTargetStr[realRootStr.size()] == '/')
+    if (normTarget.size() > normRoot.size() &&
+        normTarget.compare(0, normRoot.size(), normRoot) == 0 &&
+        normTarget[normRoot.size()] == '/')
         return true;
     return false;
 }
 
+// para POST, checkeamos que la capeta exista, y asi poder crear el archivo de ser necesario
 static bool isCreateTargetWithinRoot(const std::string &fsPath, const std::string &root)
 {
     size_t slash = fsPath.find_last_of('/');
@@ -233,26 +281,24 @@ static bool isCreateTargetWithinRoot(const std::string &fsPath, const std::strin
     if (filename == ".." || filename == "." || filename.empty())
         return false;
 
-    char realRoot[PATH_MAX];
-    char realParent[PATH_MAX];
-
-    if (realpath(root.c_str(), realRoot) == NULL)
-        return false;
-    if (realpath(parentDir.c_str(), realParent) == NULL)
+    struct stat parentSt;
+    if (stat(parentDir.c_str(), &parentSt) != 0 || !S_ISDIR(parentSt.st_mode))
         return false;
 
-    std::string realRootStr(realRoot);
-    std::string realParentStr(realParent);
+    std::string normRoot = normalizePath(root);
+    std::string normParent = normalizePath(parentDir);
 
-    if (realParentStr == realRootStr)
+    if (normParent == normRoot)
         return true;
-    if (realParentStr.size() > realRootStr.size() &&
-        realParentStr.compare(0, realRootStr.size(), realRootStr) == 0 &&
-        realParentStr[realRootStr.size()] == '/')
+    if (normParent.size() > normRoot.size() &&
+        normParent.compare(0, normRoot.size(), normRoot) == 0 &&
+        normParent[normRoot.size()] == '/')
         return true;
     return false;
 }
 
+// quita el prefijo de la location del path pedido, para poder reubicarlo bajo upload_store
+// ej: path="/uploads/algo.txt", locationPath="/uploads" -> "/algo.txt"
 static std::string stripLocationPrefix(const std::string &path, const std::string &locationPath)
 {
     if (locationPath == "/" || path.compare(0, locationPath.size(), locationPath) != 0)
@@ -265,6 +311,71 @@ static std::string stripLocationPrefix(const std::string &path, const std::strin
         return ("/" + rest);
     return (rest);
 }
+/////////////////////////////////////////////////////////////////////////////////////////////////
+
+// Respuesta de error UNICA para todo el servidor. Antes cada sitio armaba la suya a mano y solo el 404 miraba error_page.
+//   1. Si el server tiene "error_page <code> <fichero>" y el fichero se puede abrir (fichero regular) -> se sirve ese fichero (text/html).
+//   2. Si no, y se pasa fallbackPage (el 404 de requestGet usa <root>/404.html) -> se prueba ese.
+//   3. Si no, cuerpo de texto plano "<code> <mensaje>[: detail]".
+// extraHeaders son lineas ya terminadas en \r\n (p.ej. "Allow: GET, POST\r\n" en el 405).
+void setErrorResponse(Client *client, int code, const std::string &detail,
+                      const std::string &extraHeaders, const std::string &fallbackPage)
+{
+    std::stringstream codeStream;
+    codeStream << code;
+    const std::string message = statusMessage(codeStream.str());
+    const std::string status = codeStream.str() + " " + message;
+    const std::string connection = client->getKeepAlive() ? "Connection: keep-alive\r\n" : "Connection: close\r\n";
+
+    client->setFileOffset(0);
+    client->setIsRegularFile(true);
+    client->setFileSize(0);
+
+    std::string pagePath;
+    const ServerConfig *server = client->getServerConfig();
+    if (server != NULL)
+    {
+        std::map<int, std::string>::const_iterator it = server->errorPages.find(code);
+        if (it != server->errorPages.end())
+            pagePath = it->second;
+    }
+    for (int attempt = 0; attempt < 2; ++attempt)
+    {
+        const std::string &candidate = (attempt == 0) ? pagePath : fallbackPage;
+        if (candidate.empty())
+            continue ;
+        int fd = open(candidate.c_str(), O_RDONLY | O_CLOEXEC | O_NONBLOCK);
+        if (fd < 0)
+            continue ;
+        struct stat st;
+        if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode))
+        {
+            close(fd);
+            continue ;
+        }
+        std::stringstream headers;
+        headers << "HTTP/1.1 " << status << "\r\n"
+                << "Content-Type: text/html\r\n"
+                << "Content-Length: " << st.st_size << "\r\n"
+                << extraHeaders << connection << "\r\n";
+        client->setResponseHeaders(headers.str());
+        client->setFileFd(fd);
+        return ;
+    }
+
+    std::string body = status;
+    if (!detail.empty())
+        body += ": " + detail;
+    std::stringstream headers;
+    headers << "HTTP/1.1 " << status << "\r\n"
+            << "Content-Type: text/plain\r\n"
+            << "Content-Length: " << body.size() << "\r\n"
+            << extraHeaders << connection << "\r\n";
+    client->setResponseHeaders(headers.str());
+    client->setBuffer(body.c_str(), body.size());
+    client->setFileSize(body.size());
+    client->setFileFd(-1);
+}
 
 bool requestGet(Client *client, const LocationConfig &loc, int epoll_fd, std::map<int, CgiProcess> &cgiByReadFd, std::map<int, int> &writeFdToReadFd)
 {
@@ -272,176 +383,142 @@ bool requestGet(Client *client, const LocationConfig &loc, int epoll_fd, std::ma
 
     std::string filePath = loc.root + path;
 
-    char realBoundary[PATH_MAX];
-    if (realpath((loc.root + loc.path).c_str(), realBoundary) == NULL)
+    ///////////////////////////////////
+    struct stat boundarySt;
+    if (stat((loc.root + loc.path).c_str(), &boundarySt) != 0
+        || (!S_ISDIR(boundarySt.st_mode) && !(S_ISREG(boundarySt.st_mode) && path == loc.path)))
     {
-        std::string body = "Not Found";
-        client->setResponseHeaders(createHeadersLength("text/plain", "404", body.size(), client->getKeepAlive()));
-        client->setBuffer(body.c_str(), body.size());
-        client->setFileOffset(0);
-        client->setIsRegularFile(true);
-        client->setFileSize(body.size());
-        client->setFileFd(-1);
+        // la propia location no tiene una carpeta real detras (config mal hecha
+        // o location "virtual"). nginx trata esto igual que "archivo no encontrado".
+        setErrorResponse(client, 404);
         return (true);
     }
     if (!isPathWithinRoot(filePath, loc.root + loc.path))
-    {
-        std::string body = "Forbidden";
-        client->setResponseHeaders(createHeadersLength("text/plain", "403 Forbidden", body.size(), client->getKeepAlive()));
-        client->setBuffer(body.c_str(), body.size());
-        client->setFileOffset(0);
-        client->setIsRegularFile(true);
-        client->setFileSize(body.size());
-        client->setFileFd(-1);
-        return (true);
-    }
-
+	{
+		setErrorResponse(client, 403);
+		return (true);
+	}
+    //////////////////////////////////
     static std::map<std::string, std::string> typeFileDict;
-    if (typeFileDict.empty())
-    {
-        typeFileDict[".html"] = "text/html";
-        typeFileDict[".css"]  = "text/css";
-        typeFileDict[".js"]   = "application/javascript";
+	if (typeFileDict.empty())
+	{
+		typeFileDict[".html"] = "text/html";
+		typeFileDict[".css"]  = "text/css";
+		typeFileDict[".js"]   = "application/javascript";
+		
+		//image
+		typeFileDict[".jpg"]  = "image/jpeg";
+		typeFileDict[".png"]  = "image/png";
+		typeFileDict[".ico"]  = "image/x-icon";
+		typeFileDict[".gif"]  = "image/gif";
+		typeFileDict[".bmp"]  = "image/bmp";
+		
+		// video
+		typeFileDict[".mp4"] = "video/mp4";
+		typeFileDict[".webm"] = "video/webm";
+		typeFileDict[".ogv"]  = "video/ogg";
+		typeFileDict[".mov"]  = "video/quicktime";
+		typeFileDict[".avi"]  = "video/x-msvideo";
+		typeFileDict[".m4v"] = "video/x-m4v";
+		typeFileDict[".qt"]  = "video/quicktime";
+		
+		typeFileDict[".mkv"] = "video/x-matroska";
 
-        typeFileDict[".jpg"]  = "image/jpeg";
-        typeFileDict[".png"]  = "image/png";
-        typeFileDict[".ico"]  = "image/x-icon";
-        typeFileDict[".gif"]  = "image/gif";
-        typeFileDict[".bmp"]  = "image/bmp";
-
-        typeFileDict[".mp4"]  = "video/mp4";
-        typeFileDict[".webm"] = "video/webm";
-        typeFileDict[".ogv"]  = "video/ogg";
-        typeFileDict[".mov"]  = "video/quicktime";
-        typeFileDict[".avi"]  = "video/x-msvideo";
-        typeFileDict[".m4v"]  = "video/x-m4v";
-        typeFileDict[".qt"]   = "video/quicktime";
-        typeFileDict[".mkv"]  = "video/x-matroska";
-
-        typeFileDict[".mp3"]  = "audio/mpeg";
-        typeFileDict[".wav"]  = "audio/wav";
-        typeFileDict[".ogg"]  = "audio/ogg";
-        typeFileDict[".m4a"]  = "audio/mp4";
-        typeFileDict[".flac"] = "audio/flac";
-    }
-    std::string typeFile = "text/plain";
-    size_t dot = path.find_last_of('.');
-    if (dot != std::string::npos)
-    {
-        std::string ext = path.substr(dot);
-        std::map<std::string, std::string>::iterator it = typeFileDict.find(ext);
-        if (it != typeFileDict.end())
-            typeFile = it->second;
-    }
-
-    int file = open(filePath.c_str(), O_RDONLY);
+		// audio
+		typeFileDict[".mp3"]  = "audio/mpeg";
+		typeFileDict[".wav"]  = "audio/wav";
+		typeFileDict[".ogg"]  = "audio/ogg";
+		typeFileDict[".m4a"]  = "audio/mp4";
+		typeFileDict[".flac"] = "audio/flac";
+		// pendiente: mas tipos segun se necesiten
+	}
+	std::string typeFile = "text/plain"; // default si no hay match
+	size_t dot = path.find_last_of('.');
+	if (dot != std::string::npos)
+	{
+		std::string ext = path.substr(dot);
+		std::map<std::string, std::string>::iterator it = typeFileDict.find(ext);
+		if (it != typeFileDict.end())
+		    typeFile = it->second;
+	}
+	/////////////////
+	int file = open(filePath.c_str(), O_RDONLY | O_CLOEXEC | O_NONBLOCK); // FIX: O_NONBLOCK para que un FIFO sin escritor no bloquee todo el servidor en open()
     struct stat st;
     if (file < 0)
     {
-        std::string errorPagePath = loc.root + "/404.html";
-        const ServerConfig *server = client->getServerConfig();
-        if (server != NULL)
-        {
-            std::map<int, std::string>::const_iterator errIt = server->errorPages.find(404);
-            if (errIt != server->errorPages.end())
-                errorPagePath = errIt->second;
-        }
-        struct stat errSt;
-        memset(&errSt, 0, sizeof(errSt));
+        close(file); // medidas extra de precaucion, por si acaso
 
-        int errorfd = open(errorPagePath.c_str(), O_RDONLY);
-        if (errorfd >= 0 && stat(errorPagePath.c_str(), &errSt) == 0 && S_ISREG(errSt.st_mode))
-        {
-            client->setResponseHeaders(createHeadersLength("text/html", "404", errSt.st_size, client->getKeepAlive()));
-            client->setFileFd(errorfd);
-        }
-        else
-        {
-            if (errorfd >= 0)
-                close(errorfd);
-            std::string body = "Not Found";
-            client->setResponseHeaders(createHeadersLength("text/plain", "404", body.size(), client->getKeepAlive()));
-            client->setBuffer(body.c_str(), body.size());
-            client->setFileOffset(0);
-            client->setIsRegularFile(true);
-            client->setFileSize(body.size());
-            client->setFileFd(-1);
-        }
-        return (true);
+		// error_page 404 del server; si no esta, <root>/404.html; si tampoco, texto plano (todo dentro de setErrorResponse)
+		setErrorResponse(client, 404, "", "", loc.root + "/404.html");
+		return (true);
     }
     stat(filePath.c_str(), &st);
-
+    ////////////////////////////////////////////////////////////////////////
     if (S_ISDIR(st.st_mode))
-    {
-        close(file);
+	{
+		close(file);
 
-        if (path[path.size() - 1] != '/')
-        {
-            client->setResponseHeaders(createRedirectHeader(path + "/", client->getKeepAlive()));
-            client->setBuffer("", 0);
-            client->setFileOffset(0);
-            client->setIsRegularFile(true);
-            client->setFileSize(0);
-            client->setFileFd(-1);
-            return (true);
-        }
+		if (path[path.size() - 1] != '/')
+		{
+		    client->setResponseHeaders(createRedirectHeader(path + "/", client->getKeepAlive()));
+		    client->setBuffer("", 0);
+		    client->setFileOffset(0);
+		    client->setIsRegularFile(true);
+		    client->setFileSize(0);
+		    client->setFileFd(-1);
+		    return (true);
+		}
 
-        std::string indexPath = filePath;
-        if (indexPath[indexPath.size() - 1] != '/')
-            indexPath += "/";
-        indexPath += loc.index;
+		std::string indexPath = filePath;
+		if (indexPath[indexPath.size() - 1] != '/') // estas dos lineas creoq ue se pueden queitar porque el if anterior "fixea" que el cliente nos meta un directorio sin / al final, no lo hago porque tengo miedo, y sigue funcionando bien aun con el dead code
+		    indexPath += "/";						// estas dos lineas creoq ue se pueden queitar porque el if anterior "fixea" que el cliente nos meta un directorio sin / al final, no lo hago porque tengo miedo, y sigue funcionando bien aun con el dead code
+		indexPath += loc.index;
 
-        int indexFd = open(indexPath.c_str(), O_RDONLY);
-        if (indexFd >= 0)
-        {
-            struct stat indexSt;
-            stat(indexPath.c_str(), &indexSt);
-            client->setResponseHeaders(createHeadersLength("text/html", "200", indexSt.st_size, client->getKeepAlive()));
-            client->setFileFd(indexFd);
-            return (true);
-        }
+		int indexFd = open(indexPath.c_str(), O_RDONLY | O_CLOEXEC);
+		if (indexFd >= 0)
+		{
+		    struct stat indexSt;
+		    stat(indexPath.c_str(), &indexSt);
+		    client->setResponseHeaders(createHeadersLength("text/html", "200", indexSt.st_size, client->getKeepAlive()));
+		    client->setFileFd(indexFd);
+		    return (true);
+		}
 
-        if (loc.autoindex)
-        {
-            std::string listing = generateAutoindexHTML(filePath, path);
-            int listingFd = writeAutoindexToTempFile(listing);
-            client->setResponseHeaders(createHeadersLength("text/html", "200", listing.size(), client->getKeepAlive()));
-            client->setFileFd(listingFd);
-            return (true);
-        }
+		if (loc.autoindex)
+		{
+		    std::string listing = generateAutoindexHTML(filePath, path);
+		    int listingFd = writeAutoindexToTempFile(listing);
+		    client->setResponseHeaders(createHeadersLength("text/html", "200", listing.size(), client->getKeepAlive()));
+		    client->setFileFd(listingFd);
+		    return (true);
+		}
 
-        std::string body = "Forbidden";
-        client->setResponseHeaders(createHeadersLength("text/plain", "403 Forbidden", body.size(), client->getKeepAlive()));
-        client->setBuffer(body.c_str(), body.size());
-        client->setFileOffset(0);
-        client->setIsRegularFile(true);
-        client->setFileSize(body.size());
-        client->setFileFd(-1);
-        return (true);
-    }
-
+		setErrorResponse(client, 403);
+		return (true);
+	}
+    ///////////////////////////////////////////////////////////////////////////////
     if (S_ISREG(st.st_mode) != 0)
         client->setResponseHeaders(createHeadersLength(typeFile, "200", st.st_size, client->getKeepAlive()));
     else
         client->setResponseHeaders(createChunkedHeader(typeFile, "200", client->getKeepAlive()));
     client->setFileFd(file);
-
-    if (tryStartCgiForClient(client->getSocket(), client->getRequest(), filePath, loc, epoll_fd, cgiByReadFd, writeFdToReadFd))
-    {
-        close(file);
-        client->setFileFd(-1);
-        return (false);
-    }
-
-    return (true);
+    
+    if (tryStartCgiForClient(client->getSocket(), client->getSerial(), client->getRequest(), filePath, loc, epoll_fd, cgiByReadFd, writeFdToReadFd))
+	{
+		close(file);
+		client->setFileFd(-1);
+		return (false);
+	}
+	
+	return (true);
 }
 
 bool requestPost(Client *client, const LocationConfig &loc, int epoll_fd, std::map<int, CgiProcess> &cgiByReadFd, std::map<int, int> &writeFdToReadFd)
 {
     std::string path = client->getRequest().path;
 
-    std::string directPath = loc.root + path;
-    if (tryStartCgiForClient(client->getSocket(), client->getRequest(), directPath, loc, epoll_fd, cgiByReadFd, writeFdToReadFd))
+	std::string directPath = loc.root + path;
+    if (tryStartCgiForClient(client->getSocket(), client->getSerial(), client->getRequest(), directPath, loc, epoll_fd, cgiByReadFd, writeFdToReadFd))
         return (false);
 
     std::string targetRoot = loc.root;
@@ -454,26 +531,21 @@ bool requestPost(Client *client, const LocationConfig &loc, int epoll_fd, std::m
     std::string filePath = targetRoot + targetPath;
 
     client->setFileFd(-1);
-    if (!isCreateTargetWithinRoot(filePath, targetRoot))
+    if (!isCreateTargetWithinRoot(filePath, targetRoot)) //cambiado de path.find("../")
     {
-        std::string body = "Forbidden";
-        client->setResponseHeaders(createHeadersLength("text/plain", "403 Forbidden", body.size(), client->getKeepAlive()));
-        client->setBuffer(body.c_str(), body.size());
-        client->setFileSize(body.size());
-        client->setFileOffset(0);
-        client->setIsRegularFile(true);
+        setErrorResponse(client, 403);
         return (true);
     }
     struct stat st;
-    bool exist = (stat(filePath.c_str(), &st) == 0);
+    bool exist = (stat(filePath.c_str(),&st) == 0);
     std::ofstream file(filePath.c_str(), std::ios::binary | std::ios::trunc);
     std::string body;
     std::string status;
 
     if (!file.is_open())
     {
-        body = "Could not write file";
-        status = "500 Internal Server Error";
+        setErrorResponse(client, 500, "Could not write file");
+        return (true);
     }
     else
     {
@@ -490,12 +562,12 @@ bool requestPost(Client *client, const LocationConfig &loc, int epoll_fd, std::m
             status = "201 Created";
         }
     }
-    client->setResponseHeaders(createHeadersLength("text/plain", status, body.size(), client->getKeepAlive()));
-    client->setBuffer(body.c_str(), body.size());
+    client->setResponseHeaders(createHeadersLength("text/plain",status, body.size(), client->getKeepAlive()));
+    client->setBuffer(body.c_str(),body.size());
     client->setFileOffset(0);
     client->setIsRegularFile(true);
     client->setFileSize(body.size());
-    return (true);
+   	return (true);
 }
 
 void requestDelete(Client *client, const LocationConfig &loc)
@@ -505,35 +577,34 @@ void requestDelete(Client *client, const LocationConfig &loc)
     std::string body;
     std::string status;
 
+    int errCode = 0;
+    std::string detail;
+
     client->setFileFd(-1);
     char realBoundary[PATH_MAX];
     if (realpath((loc.root + loc.path).c_str(), realBoundary) == NULL)
     {
-        body = "Not Found";
-        status = "404";
+        errCode = 404;
     }
-    else if (!isPathWithinRoot(filePath, loc.root + loc.path))
+    else if (!isPathWithinRoot(filePath, loc.root + loc.path)) //cambiado de path.find("../")
     {
-        body = "Forbidden";
-        status = "403 Forbidden";
+        errCode = 403;
     }
     else
     {
         struct stat st;
         if (stat(filePath.c_str(), &st) != 0)
         {
-            body = "Not Found";
-            status = "404 Not Found";
+            errCode = 404;
         }
         else if (!S_ISREG(st.st_mode))
         {
-            body = "Forbidden";
-            status = "403 Forbidden";
+            errCode = 403;
         }
         else if (std::remove(filePath.c_str()) != 0)
         {
-            body = "Could not delete file";
-            status = "500 Internal Server Error";
+            errCode = 500;
+            detail = "Could not delete file";
         }
         else
         {
@@ -541,17 +612,22 @@ void requestDelete(Client *client, const LocationConfig &loc)
             status = "200 OK";
         }
     }
-    client->setResponseHeaders(createHeadersLength("text/plain", status, body.size(), client->getKeepAlive()));
-    client->setBuffer(body.c_str(), body.size());
+    if (errCode != 0)
+    {
+        setErrorResponse(client, errCode, detail);
+        return ;
+    }
+    client->setResponseHeaders(createHeadersLength("text/plain",status, body.size(), client->getKeepAlive()));
+    client->setBuffer(body.c_str(),body.size());
     client->setFileOffset(0);
     client->setIsRegularFile(true);
     client->setFileSize(body.size());
 }
 
+//el estandar de http dice que cuando es method not allowed en la cabecera de response
+//hay que listar los metodos si permitidos por eso armamos el header asi. 
 void requestNotAllowed(Client *client, const LocationConfig &loc)
 {
-    std::string body = "405 Method Not Allowed";
-
     std::string allowList;
     for (size_t i = 0; i < loc.methods.size(); ++i)
     {
@@ -560,35 +636,23 @@ void requestNotAllowed(Client *client, const LocationConfig &loc)
         allowList += loc.methods[i];
     }
 
-    std::stringstream headers;
-    headers << "HTTP/1.1 405 Method Not Allowed\r\n"
-            << "Content-Type: text/plain\r\n"
-            << "Content-Length: " << body.size() << "\r\n"
-            << "Allow: " << allowList << "\r\n"
-            << (client->getKeepAlive() ? "Connection: keep-alive\r\n" : "Connection: close\r\n")
-            << "\r\n";
-
-    client->setResponseHeaders(headers.str());
-    client->setBuffer(body.c_str(), body.size());
-    client->setFileOffset(0);
-    client->setIsRegularFile(true);
-    client->setFileSize(body.size());
+    // "Allow" es lo unico especifico del 405; el resto lo monta setErrorResponse (y respeta error_page 405)
+    setErrorResponse(client, 405, "", "Allow: " + allowList + "\r\n");
 }
-
+///////////////////////
+// 501: el metodo no es uno de los que este servidor sabe manejar EN NINGUN sitio
+// (distinto de 405, que es "existe, pero no en esta location")
 static bool isKnownMethod(const std::string &method)
 {
     return (method == "GET" || method == "POST" || method == "DELETE");
 }
 
+
 void requestNotImplemented(Client *client)
 {
-    std::string body = "501 Not Implemented";
-    client->setResponseHeaders(createHeadersLength("text/plain", "501 Not Implemented", body.size(), client->getKeepAlive()));
-    client->setBuffer(body.c_str(), body.size());
-    client->setFileOffset(0);
-    client->setIsRegularFile(true);
-    client->setFileSize(body.size());
+    setErrorResponse(client, 501);
 }
+///////////////////////
 
 static void sendRedirect(Client *client, const std::string &code, const std::string &redirectPath)
 {
@@ -606,30 +670,56 @@ static void sendRedirect(Client *client, const std::string &code, const std::str
     client->setFileOffset(0);
 }
 
+// URL tipo /cgi-bin/script.py/extra/ruta -> el script es /cgi-bin/script.py y PATH_INFO="/extra/ruta" (RFC 3875).
+// Solo se separa si la ruta completa NO existe y algun prefijo es un fichero regular con extension CGI de esta location.
+static void splitCgiPathInfo(Client *client, const LocationConfig &loc)
+{
+    if (loc.cgiHandlers.empty())
+        return ;
+    std::string path = client->getRequest().path;
+    struct stat st;
+    if (stat((loc.root + path).c_str(), &st) == 0)
+        return ; // existe tal cual: no hay PATH_INFO
+    for (size_t pos = path.find('/', 1); pos != std::string::npos; pos = path.find('/', pos + 1))
+    {
+        std::string prefix = path.substr(0, pos);
+        size_t dot = prefix.find_last_of('.');
+        size_t slash = prefix.find_last_of('/');
+        if (dot == std::string::npos || (slash != std::string::npos && dot < slash))
+            continue ;
+        if (loc.cgiHandlers.find(prefix.substr(dot)) == loc.cgiHandlers.end())
+            continue ;
+        if (stat((loc.root + prefix).c_str(), &st) == 0 && S_ISREG(st.st_mode))
+        {
+            client->setRequestPathInfo(path.substr(pos));
+            client->setRequestPath(prefix);
+            return ;
+        }
+    }
+}
+
 bool Procesrequest(Client * client, int epoll_fd, std::map<int, CgiProcess> &cgiByReadFd, std::map<int, int> &writeFdToReadFd, CookiesManager &cookieManager)
 {
-    if (client->getParseError() != 0)
+	if (client->getParseError() != 0)
     {
-        std::string status, body;
-
-        if (client->getParseError() == 411)
-        {
-            status = "411 Length Required";
-            body = "Length Required";
-        }
-        else if (client->getParseError() == 413)
-        {
-            status = "413 Payload Too Large";
-            body = "Payload Too Large";
-        }
-
-        client->setResponseHeaders(createHeadersLength("text/plain", status, body.size(), client->getKeepAlive()));
-        client->setBuffer(body.c_str(), body.size());
-        client->setFileOffset(0);
-        client->setIsRegularFile(true);
-        client->setFileSize(body.size());
+        // tras una peticion rota ya no se sabe donde acaba (body sin leer, framing dudoso): se cierra al terminar la respuesta
+        client->setKeepAlive(false);
+        setErrorResponse(client, client->getParseError()); // 400, 411, 413, 414, 431, 501, 505...
         return (true);
     }
+
+    /////////////////////////////////////////////////////////////////////////////////
+    /////////////////////////////////////////////////////////////////////////////////
+    //	SE PUEDE BORRAR E N EL FUTURO
+
+    /* std::cout << "=== REQUEST COMPLETE ===\n"
+          << "type: " << client->getRequest().type << "\n"
+          << "path: " << client->getRequest().path << "\n"
+          << "body: [" << client->getRequest().body << "]\n"
+          << "=========================\n"; */
+
+	////////////////////////////////////////////////////////////////////////////////
+	////////////////////////////////////////////////////////////////////////////////
 
     const std::string path = client->getRequest().path;
     const std::string method = client->getRequest().type;
@@ -650,13 +740,7 @@ bool Procesrequest(Client * client, int epoll_fd, std::map<int, CgiProcess> &cgi
 
     if (loc == NULL)
     {
-        std::string body = "Not Found";
-        client->setResponseHeaders(createHeadersLength("text/plain", "404 Not Found", body.size(), client->getKeepAlive()));
-        client->setBuffer(body.c_str(), body.size());
-        client->setFileOffset(0);
-        client->setIsRegularFile(true);
-        client->setFileSize(body.size());
-        client->setFileFd(-1);
+        setErrorResponse(client, 404);
         return (true);
     }
 
@@ -666,12 +750,13 @@ bool Procesrequest(Client * client, int epoll_fd, std::map<int, CgiProcess> &cgi
         return (true);
     }
 
+    /////
     if (!isKnownMethod(method))
-    {
-        requestNotImplemented(client);
-        return (true);
-    }
-
+	{
+		requestNotImplemented(client);
+		return (true);
+	}
+    /////
     bool methodAllowed = false;
     for (size_t i = 0; i < loc->methods.size(); ++i)
     {
@@ -683,8 +768,8 @@ bool Procesrequest(Client * client, int epoll_fd, std::map<int, CgiProcess> &cgi
     }
     if (!methodAllowed)
     {
-        requestNotAllowed(client, *loc);
-        return (true);
+    	requestNotAllowed(client, *loc);
+    	return (true);
     }
 
     if (!isPublicRoute(path) && !client->hasValidSesion(cookieManager))
@@ -693,15 +778,18 @@ bool Procesrequest(Client * client, int epoll_fd, std::map<int, CgiProcess> &cgi
         return (true);
     }
 
+	if (method == "GET" || method == "POST")
+		splitCgiPathInfo(client, *loc);
+
     if (method == "GET")
         return (requestGet(client, *loc, epoll_fd, cgiByReadFd, writeFdToReadFd));
     else if (method == "POST")
         return (requestPost(client, *loc, epoll_fd, cgiByReadFd, writeFdToReadFd));
     else if (method == "DELETE")
     {
-        requestDelete(client, *loc);
-        return (true);
-    }
+    	requestDelete(client, *loc);
+		return (true);
+	}
     requestNotAllowed(client, *loc);
     return (true);
 }

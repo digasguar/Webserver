@@ -3,6 +3,11 @@
 #include "../includes/CookiesManager.hpp"
 #include <vector>
 
+void closeTracked(int fd)
+{
+	g_touchedFds.insert(fd); close(fd);
+}
+
 int calculate_index(int current_fd, const std::map<int, const ServerConfig*> &listenFds, epoll_event ep)
 {
     if (listenFds.find(current_fd) != listenFds.end())
@@ -16,13 +21,25 @@ int calculate_index(int current_fd, const std::map<int, const ServerConfig*> &li
     return (0);
 }
 
+int check_extension(const std::string &configPath)
+{
+    std::string ext;
+    if ((configPath.length() <= 5) || configPath[configPath.length() - 6]  == '/' 
+        || configPath[configPath.length() - 6] == '.')
+        return (0);
+    ext = configPath.substr(configPath.length() - 5);
+    if (ext != ".conf")
+        return (0);
+    return (1);
+}
+
 void close_conection(std::map<int, Client> &clients, int current_fd, int epoll_fd)
 {
     std::map<int, Client>::iterator it = clients.find(current_fd);
     if (it != clients.end() && it->second.getFileFd() != -1)
         close(it->second.getFileFd());
     epoll_ctl(epoll_fd, EPOLL_CTL_DEL, current_fd, NULL);
-    close(current_fd);
+    closeTracked(current_fd);
     if (it != clients.end())
         clients.erase(it);
 }
