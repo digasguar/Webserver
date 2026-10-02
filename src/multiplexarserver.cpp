@@ -162,7 +162,7 @@ void sendHeaders(int current_fd, std::string headers, Client &client, std::map<i
     client.updateActivity();
 }
 
-void prepare_socket(int fd, const std::string &host, int port)
+bool prepare_socket(int fd, const std::string &host, int port)
 {
     std::stringstream portStream;
     portStream << port;
@@ -178,7 +178,7 @@ void prepare_socket(int fd, const std::string &host, int port)
     if (status != 0)
     {
         std::cout << "FAILURE GETADDRINFO: " << gai_strerror(status) << std::endl;
-        exit(EXIT_FAILURE);
+        return (false);
     }
 
 	////////////////////////
@@ -191,7 +191,7 @@ void prepare_socket(int fd, const std::string &host, int port)
     {
         std::cout << "FAILURE BIND" << std::endl;
         freeaddrinfo(res);
-        exit(EXIT_FAILURE);
+        return (false);
     }
     freeaddrinfo(res);
 
@@ -199,8 +199,9 @@ void prepare_socket(int fd, const std::string &host, int port)
     if (listen(fd, SOMAXCONN) < 0)
     {
         std::cout << "FAILURE LISTEN" << std::endl;
-        exit(EXIT_FAILURE);
+        return (false);
     }
+    return (true);
 }
 
 void sendResponse(std::map<int, Client> &clients, int current_fd, int epoll_fd)
@@ -279,21 +280,34 @@ static bool loadConfig(const std::string &configPath, Config &config)
     return (1);
 }
 
-// crea y bindea un socket de escucha por cada ServerConfig, todos bajo el mismo epoll_fd
-static std::map<int, const ServerConfig*> setupListenSockets(const Config &config, int epoll_fd)
+static void closeListenFds(std::map<int, const ServerConfig*> &listenFds)
 {
-    std::map<int, const ServerConfig*> listenFds;
+	for (std::map<int, const ServerConfig*>::iterator it = listenFds.begin(); it != listenFds.end(); ++it)
+		close(it->first);
+	listenFds.clear();
+}
 
+// crea y bindea un socket de escucha por cada ServerConfig, todos bajo el mismo epoll_fd
+// Devuelve false si algo falla
+static bool setupListenSockets(const Config &config, int epoll_fd, std::map<int, const ServerConfig*> &listenFds)
+{
     for (size_t i = 0; i < config.size(); ++i)
     {
         int fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
         if (fd == -1)
         {
             std::cout << "FAILURE CREATE SOCKET" << std::endl;
-            exit(EXIT_FAILURE);
+			closeListenFds(listenFds);
+			return (false);
         }
         fcntl(fd, F_SETFL, O_NONBLOCK);
-        prepare_socket(fd, config[i].host, config[i].port);
+
+		if (!prepare_socket(fd, config[i].host, config[i].port))
+		{
+			close(fd);
+			closeListenFds(listenFds);
+			return (false);
+		}
 
         epoll_event event;
         event.data.fd = fd;
@@ -301,11 +315,26 @@ static std::map<int, const ServerConfig*> setupListenSockets(const Config &confi
         if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &event) == -1)
         {
             perror("ERROR epoll_ctl");
-            exit(EXIT_FAILURE);
+			close(fd);
+			closeListenFds(listenFds);
+			return (false);
         }
         listenFds[fd] = &config[i];
     }
-    return (listenFds);
+    return (true);
+}
+
+
+// al apagar el servidor: cierra los clientes que sigan conectados y el fichero que estuvieran sirviendo.
+static void closeAllClients(std::map<int, Client> &clients)
+{
+    for (std::map<int, Client>::iterator it = clients.begin(); it != clients.end(); ++it)
+    {
+        if (it->second.getFileFd() != -1)
+            close(it->second.getFileFd());
+        close(it->first);
+    }
+    clients.clear();
 }
 
 static void processPipelinedRequests(std::map<int, Client> &clients, int epoll_fd, std::map<int, CgiProcess> &cgiByReadFd, std::map<int, int> &writeFdToReadFd)
@@ -327,6 +356,8 @@ void signalHandler(int)
     running = 0;
 }
 
+
+
 int main(int argc, char **argv)
 {
     signal(SIGINT, signalHandler);
@@ -343,9 +374,15 @@ int main(int argc, char **argv)
     if (epoll_fd == -1)
     {
         std::cout << "FAILURE EPOLL\n";
-        exit(EXIT_FAILURE);
+        return (1);
     }
-    std::map<int, const ServerConfig*> listenFds = setupListenSockets(config, epoll_fd);
+    
+    std::map<int, const ServerConfig*> listenFds;
+	if (!setupListenSockets(config, epoll_fd, listenFds))
+	{
+		close(epoll_fd);
+		return (1);
+	}
 
     epoll_event events[1024];
     std::map<int, Client> clients;
@@ -411,6 +448,7 @@ int main(int argc, char **argv)
 		}
 	}
     killAllCgi(cgiByReadFd, writeFdToReadFd);
+    closeAllClients(clients);
     close(epoll_fd);
     for (std::map<int, const ServerConfig*>::iterator it = listenFds.begin(); it != listenFds.end(); ++it)
         close(it->first);
