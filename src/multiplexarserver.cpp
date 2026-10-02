@@ -8,7 +8,6 @@
 
 #include <cstring>
 
-#define DEFAULT_CONFIG_PATH "./config/default.conf"
 
 volatile sig_atomic_t running = 1;
 std::set<int> g_touchedFds;
@@ -252,8 +251,6 @@ static std::string resolveConfigPath(int argc, char **argv)
         std::cerr << "Usage: ./webserv [config_file]" << std::endl;
         std::exit(EXIT_FAILURE);
     }
-    if (argc == 1)
-        return (std::string(DEFAULT_CONFIG_PATH));
     if (!check_extension(argv[1]))
     {
         std::cerr << "Error: config file extension must be '.conf'" << std::endl;
@@ -360,12 +357,16 @@ void signalHandler(int)
 
 int main(int argc, char **argv)
 {
+    if (argc != 2)
+    {
+        std::cout << "USAGE: ./webserv [path/config_file]" << std::endl;
+        return(1);
+    }
     signal(SIGINT, signalHandler);
 
 	signal(SIGPIPE, SIG_IGN); 
     // si se hace send() a un socket que ya cerró la conexion el kernel devuelve SIGPIPE que mata todo el proceso.
     
-
     std::string configPath = resolveConfigPath(argc, argv);
     Config config;
     if (!loadConfig(configPath, config))
