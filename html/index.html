@@ -23,6 +23,28 @@
             display: inline-block;
             border-radius: 10px;
         }
+
+        .extra {
+            margin-top: 30px;
+        }
+
+        .btn {
+            display: inline-block;
+            margin-top: 10px;
+            padding: 12px 28px;
+            background-color: #00ff99;
+            color: #202020;
+            font-weight: bold;
+            text-decoration: none;
+            border: 2px solid #00ff99;
+            border-radius: 10px;
+            transition: background-color 0.2s, color 0.2s;
+        }
+
+        .btn:hover {
+            background-color: transparent;
+            color: #00ff99;
+        }
     </style>
 </head>
 
@@ -31,6 +53,11 @@
         <h1>Webserv funcionando</h1>
         <p>Si ves esta página, tu servidor ha encontrado el archivo correctamente.</p>
         <p>HTTP GET OK 🚀</p>
+    </div>
+
+    <div class="extra">
+        <p>Si quieres ver los archivos alojados, haz click aquí 👇</p>
+        <a class="btn" href="./feed.html">Ver archivos</a>
     </div>
 </body>
 </html>

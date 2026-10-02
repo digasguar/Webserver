@@ -34,6 +34,7 @@ int calculate_index(int current_fd, const std::map<int, const ServerConfig*> &li
 void finishResponse(std::map<int, Client> &clients, int current_fd, int epoll_fd);
 void close_conection(std::map<int, Client> &clients, int current_fd, int epoll_fd);
 void checkClientTimeut(std::map<int, Client> &clients, int epoll_fd);
+int	check_extension(const std::string &configPath);
 std::string statusMessage(const std::string &code);
 
 #endif

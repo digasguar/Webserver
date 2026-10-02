@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Feed - Mi Webserv</title>
+    <style>
+        body {
+            background-color: #202020;
+            color: white;
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin-top: 40px;
+        }
+
+        h1 {
+            color: #00ff99;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 10px 24px;
+            background-color: #00ff99;
+            color: #202020;
+            font-weight: bold;
+            text-decoration: none;
+            border: 2px solid #00ff99;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.2s, color 0.2s;
+        }
+
+        .btn:hover {
+            background-color: transparent;
+            color: #00ff99;
+        }
+
+        #feed {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            justify-content: center;
+            margin: 30px auto;
+            max-width: 1000px;
+        }
+
+        .card {
+            border: 2px solid #00ff99;
+            border-radius: 10px;
+            padding: 12px;
+            width: 260px;
+        }
+
+        .card img, .card video {
+            max-width: 100%;
+            max-height: 200px;
+            border-radius: 6px;
+        }
+
+        .card a.name {
+            display: block;
+            margin-top: 8px;
+            color: #00ff99;
+            word-break: break-all;
+        }
+
+        .card .del {
+            margin-top: 8px;
+            background: transparent;
+            color: #ff5555;
+            border: 1px solid #ff5555;
+            border-radius: 6px;
+            cursor: pointer;
+            padding: 4px 10px;
+        }
+
+        #status {
+            color: #aaa;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Archivos subidos</h1>
+    <button class="btn" id="refresh">Actualizar</button>
+    <p id="status"></p>
+    <div id="feed"></div>
+
+    <script>
+        const DIR = '/uploads/';
+        const IMG = /\.(png|jpe?g|gif|webp|svg|bmp)$/i;
+        const VID = /\.(mp4|webm|ogg)$/i;
+
+        async function loadFeed() {
+            const feed = document.getElementById('feed');
+            const status = document.getElementById('status');
+            try {
+                const res = await fetch(DIR, { cache: 'no-store' });
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+
+                const files = [...doc.querySelectorAll('a[href]')]
+                    .map(a => new URL(a.getAttribute('href'), location.origin + DIR).pathname)
+                    .filter(p => p.startsWith(DIR) && p !== DIR && !p.endsWith('/'));
+
+                feed.innerHTML = '';
+                files.forEach(path => {
+                    const name = decodeURIComponent(path.split('/').pop());
+                    const card = document.createElement('div');
+                    card.className = 'card';
+
+                    if (IMG.test(name)) {
+                        card.innerHTML = '<img src="' + path + '" alt="">';
+                    } else if (VID.test(name)) {
+                        card.innerHTML = '<video src="' + path + '" controls></video>';
+                    }
+
+                    const link = document.createElement('a');
+                    link.className = 'name';
+                    link.href = path;
+                    link.textContent = name;
+                    card.appendChild(link);
+
+                    const del = document.createElement('button');
+                    del.className = 'del';
+                    del.textContent = 'Borrar';
+                    del.onclick = async () => {
+                        await fetch(path, { method: 'DELETE' });
+                        loadFeed();
+                    };
+                    card.appendChild(del);
+
+                    feed.appendChild(card);
+                });
+
+                status.textContent = files.length + ' archivo(s)';
+            } catch (e) {
+                status.textContent = 'No se pudo cargar el listado (' + e.message + ')';
+            }
+        }
+
+        document.getElementById('refresh').onclick = loadFeed;
+        loadFeed();
+        setInterval(loadFeed, 5000); // se actualiza solo cada 5 s
+    </script>
+</body>
+</html>
