@@ -119,6 +119,8 @@ public:
     
     unsigned long getSerial() const;
 
+    bool hasValidSesion(CookiesManager &cookieManager);
+
 	bool _pipelined; // al acabar la respuesta anterior ya habia otra peticion COMPLETA en recv_buffer
 	bool takePipelined(); // devuelve _pipelined y lo pone a false
 

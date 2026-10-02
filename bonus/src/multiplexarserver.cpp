@@ -5,9 +5,9 @@
 #include "../includes/ConfigTokenizer.hpp"
 #include "../includes/ConfigParser.hpp"
 #include "../includes/CgiRunner.hpp"
+#include "../includes/CookiesManager.hpp"
 
 #include <cstring>
-
 
 volatile sig_atomic_t running = 1;
 std::set<int> g_touchedFds;
@@ -54,9 +54,9 @@ void createClient(std::map<int, Client> &clients, int fd, int epoll_fd, const st
 
 // si la peticion completa, se procesa 
 // si la respuesta ya esta lista, el cliente pasa a EPOLLOUT
-static void startResponse(Client &client, int fd, int epoll_fd, std::map<int, CgiProcess> &cgiByReadFd, std::map<int, int> &writeFdToReadFd)
+static void startResponse(Client &client, int fd, int epoll_fd, std::map<int, CgiProcess> &cgiByReadFd, std::map<int, int> &writeFdToReadFd, CookiesManager &cookieManager)
 {
-    bool responseReady = Procesrequest(&client, epoll_fd, cgiByReadFd, writeFdToReadFd);
+    bool responseReady = Procesrequest(&client, epoll_fd, cgiByReadFd, writeFdToReadFd, cookieManager);
     if (!responseReady)
         return ; // un CGI se ha hecho cargo
 
@@ -67,7 +67,7 @@ static void startResponse(Client &client, int fd, int epoll_fd, std::map<int, Cg
     epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &response_event);
 }
 
-void reciveRequest(std::map<int, Client> &clients, int current_fd, int epoll_fd, std::map<int, CgiProcess> &cgiByReadFd, std::map<int, int> &writeFdToReadFd)
+void reciveRequest(std::map<int, Client> &clients, int current_fd, int epoll_fd, std::map<int, CgiProcess> &cgiByReadFd, std::map<int, int> &writeFdToReadFd, CookiesManager & cookieManager)
 {
     std::map<int, Client>::iterator it = clients.find(current_fd);
     if (it == clients.end())
@@ -105,7 +105,7 @@ void reciveRequest(std::map<int, Client> &clients, int current_fd, int epoll_fd,
     	return ;
     
        
-    startResponse(client, current_fd, epoll_fd, cgiByReadFd, writeFdToReadFd);
+    startResponse(client, current_fd, epoll_fd, cgiByReadFd, writeFdToReadFd, cookieManager);
 }
 
 int prepare_response(std::map<int, Client> &clients, Client &client, int current_fd, int epoll_fd)
@@ -334,7 +334,7 @@ static void closeAllClients(std::map<int, Client> &clients)
     clients.clear();
 }
 
-static void processPipelinedRequests(std::map<int, Client> &clients, int epoll_fd, std::map<int, CgiProcess> &cgiByReadFd, std::map<int, int> &writeFdToReadFd)
+static void processPipelinedRequests(std::map<int, Client> &clients, int epoll_fd, std::map<int, CgiProcess> &cgiByReadFd, std::map<int, int> &writeFdToReadFd, CookiesManager &cookieManager)
 {
     std::vector<int> ready;
     for (std::map<int, Client>::iterator it = clients.begin(); it != clients.end(); ++it)
@@ -344,7 +344,7 @@ static void processPipelinedRequests(std::map<int, Client> &clients, int epoll_f
     {
         std::map<int, Client>::iterator it = clients.find(ready[i]);
         if (it != clients.end())
-            startResponse(it->second, ready[i], epoll_fd, cgiByReadFd, writeFdToReadFd);
+            startResponse(it->second, ready[i], epoll_fd, cgiByReadFd, writeFdToReadFd, cookieManager);
     }
 }
 
@@ -367,6 +367,7 @@ int main(int argc, char **argv)
 	signal(SIGPIPE, SIG_IGN); 
     // si se hace send() a un socket que ya cerró la conexion el kernel devuelve SIGPIPE que mata todo el proceso.
     
+
     std::string configPath = resolveConfigPath(argc, argv);
     Config config;
     if (!loadConfig(configPath, config))
@@ -389,10 +390,11 @@ int main(int argc, char **argv)
     std::map<int, Client> clients;
     std::map<int, CgiProcess> cgiByReadFd;
 	std::map<int, int> writeFdToReadFd;
+	CookiesManager cookieManager = CookiesManager();
 	
     while (running)
     {
-    	processPipelinedRequests(clients, epoll_fd, cgiByReadFd, writeFdToReadFd);
+    	processPipelinedRequests(clients, epoll_fd, cgiByReadFd, writeFdToReadFd, cookieManager);
     
 		g_touchedFds.clear();
     	
@@ -434,7 +436,7 @@ int main(int argc, char **argv)
 				if (index == 1)
 					createClient(clients, current_fd, epoll_fd, listenFds);
 				else if (index == 2)
-					reciveRequest(clients, current_fd, epoll_fd, cgiByReadFd, writeFdToReadFd);
+					reciveRequest(clients, current_fd, epoll_fd, cgiByReadFd, writeFdToReadFd, cookieManager);
 				else
 					functions[index](clients, current_fd, epoll_fd);
 			}

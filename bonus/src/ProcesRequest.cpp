@@ -3,6 +3,7 @@
 #include "../includes/ConfigTypes.hpp"
 #include "../includes/ConfigLookup.hpp"
 #include "../includes/CgiRunner.hpp"
+#include "../includes/CookiesManager.hpp"
 
 #include <cstring>
 #include <dirent.h>
@@ -61,6 +62,38 @@ std::string createRedirectHeader(const std::string &location, bool keep_alive) /
             "\r\n");
     return ("HTTP/1.1 301 Moved Permanently\r\n"
             "Location: " + location + "\r\n"
+            "Content-Length: 0\r\n"
+            "Connection: keep-alive\r\n"
+            "\r\n");
+}
+
+std::string createAuthRedirect(const std::string &location, bool keep_alive)
+{
+    if (!keep_alive)
+        return ("HTTP/1.1 303 See Other\r\n"
+            "Location: " + location + "\r\n"
+            "Content-Length: 0\r\n"
+            "Connection: close\r\n"
+            "\r\n");
+    return ("HTTP/1.1 303 See Other\r\n"
+            "Location: " + location + "\r\n"
+            "Content-Length: 0\r\n"
+            "Connection: keep-alive\r\n"
+            "\r\n");
+}
+
+std::string createAuthRedirectWithCookie(const std::string &location, const std::string &cookieValue, bool keep_alive)
+{
+    if (!keep_alive)
+        return ("HTTP/1.1 303 See Other\r\n"
+            "Location: " + location + "\r\n"
+            "Set-Cookie: " + cookieValue + "\r\n"
+            "Content-Length: 0\r\n"
+            "Connection: close\r\n"
+            "\r\n");
+    return ("HTTP/1.1 303 See Other\r\n"
+            "Location: " + location + "\r\n"
+            "Set-Cookie: " + cookieValue + "\r\n"
             "Content-Length: 0\r\n"
             "Connection: keep-alive\r\n"
             "\r\n");
@@ -352,7 +385,8 @@ bool requestGet(Client *client, const LocationConfig &loc, int epoll_fd, std::ma
 
     ///////////////////////////////////
     struct stat boundarySt;
-    if (stat((loc.root + loc.path).c_str(), &boundarySt) != 0 || !S_ISDIR(boundarySt.st_mode))
+    if (stat((loc.root + loc.path).c_str(), &boundarySt) != 0
+        || (!S_ISDIR(boundarySt.st_mode) && !(S_ISREG(boundarySt.st_mode) && path == loc.path)))
     {
         // la propia location no tiene una carpeta real detras (config mal hecha
         // o location "virtual"). nginx trata esto igual que "archivo no encontrado".
@@ -664,7 +698,7 @@ static void splitCgiPathInfo(Client *client, const LocationConfig &loc)
     }
 }
 
-bool Procesrequest(Client * client, int epoll_fd, std::map<int, CgiProcess> &cgiByReadFd, std::map<int, int> &writeFdToReadFd)
+bool Procesrequest(Client * client, int epoll_fd, std::map<int, CgiProcess> &cgiByReadFd, std::map<int, int> &writeFdToReadFd, CookiesManager &cookieManager)
 {
 	if (client->getParseError() != 0)
     {
@@ -687,8 +721,22 @@ bool Procesrequest(Client * client, int epoll_fd, std::map<int, CgiProcess> &cgi
 	////////////////////////////////////////////////////////////////////////////////
 	////////////////////////////////////////////////////////////////////////////////
 
+    const std::string path = client->getRequest().path;
+    const std::string method = client->getRequest().type;
+
+    if (path == "/login" && method == "GET")
+    {
+        requestLoginPage(client);
+        return (true);
+    }
+    if (path == "/login/submit" && method == "POST")
+    {
+        requestLoginSubmit(client, cookieManager);
+        return (true);
+    }
+
     const ServerConfig *server = client->getServerConfig();
-    const LocationConfig *loc = (server != NULL) ? findLocation(*server, client->getRequest().path) : NULL;
+    const LocationConfig *loc = (server != NULL) ? findLocation(*server, path) : NULL;
 
     if (loc == NULL)
     {
@@ -702,7 +750,6 @@ bool Procesrequest(Client * client, int epoll_fd, std::map<int, CgiProcess> &cgi
         return (true);
     }
 
-    const std::string &method = client->getRequest().type;
     /////
     if (!isKnownMethod(method))
 	{
@@ -723,6 +770,12 @@ bool Procesrequest(Client * client, int epoll_fd, std::map<int, CgiProcess> &cgi
     {
     	requestNotAllowed(client, *loc);
     	return (true);
+    }
+
+    if (!isPublicRoute(path) && !client->hasValidSesion(cookieManager))
+    {
+        requestRedirectToLogin(client);
+        return (true);
     }
 
 	if (method == "GET" || method == "POST")
