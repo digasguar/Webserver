@@ -36,5 +36,8 @@ void close_conection(std::map<int, Client> &clients, int current_fd, int epoll_f
 void checkClientTimeut(std::map<int, Client> &clients, int epoll_fd);
 int	check_extension(const std::string &configPath);
 std::string statusMessage(const std::string &code);
+// respuesta de error unica (honra "error_page <code>" para cualquier codigo; ver ProcesRequest.cpp)
+void setErrorResponse(Client *client, int code, const std::string &detail = "",
+                      const std::string &extraHeaders = "", const std::string &fallbackPage = "");
 
 #endif
