@@ -11,6 +11,7 @@
 #define DEFAULT_CONFIG_PATH "./config/default.conf"
 
 volatile sig_atomic_t running = 1;
+std::set<int> g_touchedFds;
 
 void createClient(std::map<int, Client> &clients, int fd, int epoll_fd, const std::map<int, const ServerConfig*> &listenFds)
 {
@@ -22,12 +23,24 @@ void createClient(std::map<int, Client> &clients, int fd, int epoll_fd, const st
 
     while (true)
     {
-        int fd_client = accept(fd, NULL, NULL);
+        struct sockaddr_storage peer;
+        socklen_t peerLen = sizeof(peer);
+        std::memset(&peer, 0, sizeof(peer));
+        int fd_client = accept(fd, reinterpret_cast<struct sockaddr *>(&peer), &peerLen);
+
         if (fd_client < 0)
             break;
         fcntl(fd_client, F_SETFL, O_NONBLOCK);
-
-        clients.insert(std::make_pair(fd_client, Client(fd_client, serverConfig)));
+		g_touchedFds.insert(fd_client);
+		
+		std::map<int, Client>::iterator newClient = clients.insert(std::make_pair(fd_client, Client(fd_client, serverConfig))).first;
+        if (peer.ss_family == AF_INET) // IPv4 -> "a.b.c.d" (sin inet_ntoa, que no esta en la lista de funciones permitidas)
+        {
+            unsigned long ip = ntohl(reinterpret_cast<struct sockaddr_in *>(&peer)->sin_addr.s_addr);
+            std::stringstream addr;
+            addr << ((ip >> 24) & 0xff) << "." << ((ip >> 16) & 0xff) << "." << ((ip >> 8) & 0xff) << "." << (ip & 0xff);
+            newClient->second.setRemoteAddr(addr.str());
+        }
 
         epoll_event client_event;
         client_event.data.fd = fd_client;
@@ -38,6 +51,21 @@ void createClient(std::map<int, Client> &clients, int fd, int epoll_fd, const st
             close(fd_client);
         }
     }
+}
+
+// si la peticion completa, se procesa 
+// si la respuesta ya esta lista, el cliente pasa a EPOLLOUT
+static void startResponse(Client &client, int fd, int epoll_fd, std::map<int, CgiProcess> &cgiByReadFd, std::map<int, int> &writeFdToReadFd)
+{
+    bool responseReady = Procesrequest(&client, epoll_fd, cgiByReadFd, writeFdToReadFd);
+    if (!responseReady)
+        return ; // un CGI se ha hecho cargo
+
+    epoll_event response_event;
+    response_event.data.fd = fd;
+    response_event.events = EPOLLOUT;
+    client.setEpollEvent(response_event);
+    epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &response_event);
 }
 
 void reciveRequest(std::map<int, Client> &clients, int current_fd, int epoll_fd, std::map<int, CgiProcess> &cgiByReadFd, std::map<int, int> &writeFdToReadFd)
@@ -59,22 +87,26 @@ void reciveRequest(std::map<int, Client> &clients, int current_fd, int epoll_fd,
 
     client.updateActivity();
 
+	if (client.isRequestComplete())
+    {
+        // Ahora solo se guarda lo que llegue en recv_buffer y se procesa cuando acabe la respuesta actual
+        if (client.recv_buffer.size() + bytes > MAX_PIPELINE_BUFFER)
+        {
+            close_conection(clients, current_fd, epoll_fd);
+            return ;
+        }
+        client.recv_buffer.append(buffer, bytes);
+        return ;
+    }
+
     client.recv_buffer.append(buffer, bytes);
 
     client.parseRequest();
     if (!client.isRequestComplete())
     	return ;
     
-    bool responseReady = Procesrequest(&client, epoll_fd, cgiByReadFd, writeFdToReadFd);
-    if (!responseReady)
-        return ; // un CGI se ha hecho cargo
-    
-    epoll_event response_event;
-    response_event.data.fd = current_fd;
-    response_event.events = EPOLLOUT;
-    client.setEpollEvent(response_event);
-    epoll_ctl(epoll_fd, EPOLL_CTL_MOD, current_fd, &response_event);
-    return ;
+       
+    startResponse(client, current_fd, epoll_fd, cgiByReadFd, writeFdToReadFd);
 }
 
 int prepare_response(std::map<int, Client> &clients, Client &client, int current_fd, int epoll_fd)
@@ -272,6 +304,20 @@ static std::map<int, const ServerConfig*> setupListenSockets(const Config &confi
     return (listenFds);
 }
 
+static void processPipelinedRequests(std::map<int, Client> &clients, int epoll_fd, std::map<int, CgiProcess> &cgiByReadFd, std::map<int, int> &writeFdToReadFd)
+{
+    std::vector<int> ready;
+    for (std::map<int, Client>::iterator it = clients.begin(); it != clients.end(); ++it)
+        if (it->second.takePipelined())
+            ready.push_back(it->first);
+    for (size_t i = 0; i < ready.size(); ++i)
+    {
+        std::map<int, Client>::iterator it = clients.find(ready[i]);
+        if (it != clients.end())
+            startResponse(it->second, ready[i], epoll_fd, cgiByReadFd, writeFdToReadFd);
+    }
+}
+
 void signalHandler(int)
 {
     running = 0;
@@ -303,15 +349,18 @@ int main(int argc, char **argv)
 	
     while (running)
     {
+    	processPipelinedRequests(clients, epoll_fd, cgiByReadFd, writeFdToReadFd);
+    
+		g_touchedFds.clear();
+    	
         int n = epoll_wait(epoll_fd, events, 1024, 1000);
+        
+		checkClientTimeut(clients, epoll_fd);
+		reapDeadOrSlowCgi(clients, cgiByReadFd, writeFdToReadFd, epoll_fd);
+        
         if (n <= 0)
             continue;
-        if (n == -1)
-        {
-            perror("epoll wait");
-            exit(EXIT_FAILURE);
-        }
-        checkClientTimeut(clients, epoll_fd);
+
         void (*functions[])(std::map<int, Client> &, int, int) =
         {
             dummy,
@@ -324,24 +373,36 @@ int main(int argc, char **argv)
         {
             int current_fd = events[i].data.fd;
             
-            if (cgiByReadFd.find(current_fd) != cgiByReadFd.end())
-			{
-				handleCgiRead(clients, cgiByReadFd, writeFdToReadFd, current_fd, epoll_fd);
-				continue;
-			}
-			if (writeFdToReadFd.find(current_fd) != writeFdToReadFd.end())
-			{
-				handleCgiWrite(clients, cgiByReadFd, writeFdToReadFd, current_fd, epoll_fd);
-				continue;
-			}
+            if (g_touchedFds.count(current_fd))
+				continue; // evento viejo de un fd que ya se cerro/recreo en esta vuelta
+            try
+            {
+		        if (cgiByReadFd.find(current_fd) != cgiByReadFd.end())
+				{
+					handleCgiRead(clients, cgiByReadFd, writeFdToReadFd, current_fd, epoll_fd);
+					continue;
+				}
+				if (writeFdToReadFd.find(current_fd) != writeFdToReadFd.end())
+				{
+					handleCgiWrite(clients, cgiByReadFd, writeFdToReadFd, current_fd, epoll_fd);
+					continue;
+				}
 
-			size_t index = calculate_index(current_fd, listenFds, events[i]);
-			if (index == 1)
-				createClient(clients, current_fd, epoll_fd, listenFds);
-			else if (index == 2)
-				reciveRequest(clients, current_fd, epoll_fd, cgiByReadFd, writeFdToReadFd);
-			else
-				functions[index](clients, current_fd, epoll_fd);
+				size_t index = calculate_index(current_fd, listenFds, events[i]);
+				if (index == 1)
+					createClient(clients, current_fd, epoll_fd, listenFds);
+				else if (index == 2)
+					reciveRequest(clients, current_fd, epoll_fd, cgiByReadFd, writeFdToReadFd);
+				else
+					functions[index](clients, current_fd, epoll_fd);
+			}
+			catch (const std::exception &e)
+            {
+                // p.ej. std::bad_alloc con un cliente que manda muchisimo: se descarta ESE cliente, el servidor sigue
+                std::cerr << "error atendiendo fd " << current_fd << ": " << e.what() << std::endl;
+                if (clients.find(current_fd) != clients.end())
+                    close_conection(clients, current_fd, epoll_fd);
+            }
 		}
 	}
     killAllCgi(cgiByReadFd, writeFdToReadFd);

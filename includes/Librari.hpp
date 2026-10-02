@@ -22,6 +22,12 @@ struct CgiProcess;
 #include <signal.h>
 #include <ctime>
 
+#include <set>
+
+// fds cerrados o creados durante la vuelta actual del bucle. epoll_wait ya devolvio sus eventos, asi que cualquier
+// evento pendiente para uno de estos numeros es de un fd ANTIGUO (el kernel reutiliza los numeros) y hay que ignorarlo.
+extern std::set<int> g_touchedFds;
+void closeTracked(int fd); // close() que ignora eventos viejos de epoll sobre ese numero en esta vuelta
 
 bool Procesrequest(Client * client, int epoll_fd, std::map<int, CgiProcess> &cgiByReadFd, std::map<int, int> &writeFdToReadFd);
 int calculate_index(int current_fd, const std::map<int, const ServerConfig*> &listenFds, epoll_event ep);

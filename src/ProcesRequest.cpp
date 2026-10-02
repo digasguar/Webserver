@@ -10,11 +10,18 @@
 #include <algorithm>
 #include <cctype>
 
-std::string createHeadersLength(const std::string type, const std::string status, size_t length, bool keep_alive)
+std::string createHeadersLength(const std::string type, const std::string statusIn, size_t length, bool keep_alive)
 {
     std::stringstream ss;
     ss << length;
-
+	
+	// varios llamadores pasan solo el codigo ("200", "404")
+	// se completa con el texto, que si no la linea de estado
+    // antes salia solo como "HTTP/1.1 200" (sin reason-phrase)
+    std::string status = statusIn;
+    if (status.size() == 3 && status.find_first_not_of("0123456789") == std::string::npos)
+        status += " " + statusMessage(status);
+	
     if (!keep_alive)
         return ("HTTP/1.1 " + status + "\r\n"
             "Content-Type: " + type + "\r\n"
@@ -328,7 +335,7 @@ bool requestGet(Client *client, const LocationConfig &loc, int epoll_fd, std::ma
 		    typeFile = it->second;
 	}
 	/////////////////
-	int file = open(filePath.c_str(), O_RDONLY | O_CLOEXEC);
+	int file = open(filePath.c_str(), O_RDONLY | O_CLOEXEC | O_NONBLOCK); // FIX: O_NONBLOCK para que un FIFO sin escritor no bloquee todo el servidor en open()
     struct stat st;
     if (file < 0)
     {
@@ -609,23 +616,45 @@ static void sendRedirect(Client *client, const std::string &code, const std::str
     client->setFileOffset(0);
 }
 
+// URL tipo /cgi-bin/script.py/extra/ruta -> el script es /cgi-bin/script.py y PATH_INFO="/extra/ruta" (RFC 3875).
+// Solo se separa si la ruta completa NO existe y algun prefijo es un fichero regular con extension CGI de esta location.
+static void splitCgiPathInfo(Client *client, const LocationConfig &loc)
+{
+    if (loc.cgiHandlers.empty())
+        return ;
+    std::string path = client->getRequest().path;
+    struct stat st;
+    if (stat((loc.root + path).c_str(), &st) == 0)
+        return ; // existe tal cual: no hay PATH_INFO
+    for (size_t pos = path.find('/', 1); pos != std::string::npos; pos = path.find('/', pos + 1))
+    {
+        std::string prefix = path.substr(0, pos);
+        size_t dot = prefix.find_last_of('.');
+        size_t slash = prefix.find_last_of('/');
+        if (dot == std::string::npos || (slash != std::string::npos && dot < slash))
+            continue ;
+        if (loc.cgiHandlers.find(prefix.substr(dot)) == loc.cgiHandlers.end())
+            continue ;
+        if (stat((loc.root + prefix).c_str(), &st) == 0 && S_ISREG(st.st_mode))
+        {
+            client->setRequestPathInfo(path.substr(pos));
+            client->setRequestPath(prefix);
+            return ;
+        }
+    }
+}
 
 bool Procesrequest(Client * client, int epoll_fd, std::map<int, CgiProcess> &cgiByReadFd, std::map<int, int> &writeFdToReadFd)
 {
 	if (client->getParseError() != 0)
     {
-        std::string status, body;
-
-        if (client->getParseError() == 411)
-        {
-            status = "411 Length Required";
-            body = "Length Required";
-        }
-        else if (client->getParseError() == 413)
-        {
-            status = "413 Payload Too Large";
-            body = "Payload Too Large";
-        }
+        std::stringstream code;
+        code << client->getParseError();
+        std::string body = statusMessage(code.str()); // 400, 411, 413, 414, 431, 501, 505...
+        std::string status = code.str() + " " + body;
+ 
+        // tras una peticion rota ya no se sabe donde acaba (body sin leer, framing dudoso): se cierra al terminar la respuesta
+        client->setKeepAlive(false);
 
         client->setResponseHeaders(createHeadersLength("text/plain", status, body.size(), client->getKeepAlive()));
         client->setBuffer(body.c_str(), body.size());
@@ -691,6 +720,9 @@ bool Procesrequest(Client * client, int epoll_fd, std::map<int, CgiProcess> &cgi
     	requestNotAllowed(client, *loc);
     	return (true);
     }
+
+	if (method == "GET" || method == "POST")
+		splitCgiPathInfo(client, *loc);
 
     if (method == "GET")
         return (requestGet(client, *loc, epoll_fd, cgiByReadFd, writeFdToReadFd));
