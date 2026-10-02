@@ -2,6 +2,11 @@
 #include "../includes/Client.hpp"
 #include <vector>
 
+void closeTracked(int fd)
+{
+	g_touchedFds.insert(fd); close(fd);
+}
+
 int calculate_index(int current_fd, const std::map<int, const ServerConfig*> &listenFds, epoll_event ep)
 {
     if (listenFds.find(current_fd) != listenFds.end())
