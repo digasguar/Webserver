@@ -290,7 +290,7 @@ void setErrorResponse(Client *client, int code, const std::string &detail,
         const std::string &candidate = (attempt == 0) ? pagePath : fallbackPage;
         if (candidate.empty())
             continue ;
-        int fd = open(candidate.c_str(), O_RDONLY | O_CLOEXEC);
+        int fd = open(candidate.c_str(), O_RDONLY | O_CLOEXEC | O_NONBLOCK);
         if (fd < 0)
             continue ;
         struct stat st;
