@@ -186,8 +186,8 @@ std::string extractCookie(const std::string &cookieHeader)
         pos += prefix.size();
     }
 
-    if (pos == std::string::npos)
-        return ("");
+	if (pos == std::string::npos)
+		return ("");
 	size_t start = pos + prefix.size();
     size_t end = cookieHeader.find(';', start);
     if (end == std::string::npos)
