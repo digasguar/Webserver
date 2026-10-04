@@ -116,13 +116,13 @@ bonus/      standalone bonus build (cookies/sessions), mirrors src/ and includes
 
 - Ali Naqvi, [*Writing an Nginx-like Web Server from Scratch*](https://www.alimnaqvi.com/blog/webserv).
 - m4nnb3ll, [*Webserv: Building a Non-Blocking Web Server in C++98*](https://m4nnb3ll.medium.com/webserv-building-a-non-blocking-web-server-in-c-98-a-42-project-04c7365e4ec7).
--[*How HTTP Servers Work*](https://http.dev/http-connection)
+- [*How HTTP Servers Work*](https://http.dev/http-connection)
 
 ### Videos
 
--[*Building a web server from scratch*](https://www.youtube.com/watch?v=V6ArZlHzZ6w)
--[*How HTTP Servers Work*](https://www.youtube.com/watch?v=YwHErWJIh6Y&t=1402s)
--Eliezer de Leon, [*What is a multiplexer*](https://www.youtube.com/watch?v=1B4SiOewm5Q)
+- [*Building a web server from scratch*](https://www.youtube.com/watch?v=V6ArZlHzZ6w)
+- [*How HTTP Servers Work*](https://www.youtube.com/watch?v=YwHErWJIh6Y&t=1402s)
+- Eliezer de Leon, [*What is a multiplexer*](https://www.youtube.com/watch?v=1B4SiOewm5Q)
 
 ### Use of AI
 
