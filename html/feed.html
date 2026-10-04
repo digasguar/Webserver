@@ -84,6 +84,8 @@
 <body>
     <h1>Archivos subidos</h1>
     <button class="btn" id="refresh">Actualizar</button>
+    <button class="btn" id="upload">Subir archivo</button>
+    <input type="file" id="fileInput" hidden>
     <p id="status"></p>
     <div id="feed"></div>
 
@@ -140,7 +142,28 @@
             }
         }
 
+        async function uploadFile(file) {
+            const status = document.getElementById('status');
+            status.textContent = 'Subiendo ' + file.name + '...';
+            try {
+                const res = await fetch(DIR + encodeURIComponent(file.name), {
+                    method: 'POST',
+                    body: file
+                });
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                await loadFeed();
+            } catch (e) {
+                status.textContent = 'No se pudo subir el archivo (' + e.message + ')';
+            }
+        }
+
         document.getElementById('refresh').onclick = loadFeed;
+        document.getElementById('upload').onclick = () => document.getElementById('fileInput').click();
+        document.getElementById('fileInput').onchange = (e) => {
+            const file = e.target.files[0];
+            e.target.value = '';
+            if (file) uploadFile(file);
+        };
         loadFeed();
         setInterval(loadFeed, 5000); // se actualiza solo cada 5 s
     </script>
