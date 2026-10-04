@@ -294,7 +294,7 @@ static std::string stripLocationPrefix(const std::string &path, const std::strin
 
 // Respuesta de error UNICA para todo el servidor. Antes cada sitio armaba la suya a mano y solo el 404 miraba error_page.
 //   1. Si el server tiene "error_page <code> <fichero>" y el fichero se puede abrir (fichero regular) -> se sirve ese fichero (text/html).
-//   2. Si no, y se pasa fallbackPage (el 404 de requestGet usa <root>/404.html) -> se prueba ese.
+//   2. Si no, y el llamador pasa fallbackPage -> se prueba ese. (FALLBACK DEPRECIADO, DIRECTO A TEXTO PLANO)
 //   3. Si no, cuerpo de texto plano "<code> <mensaje>[: detail]".
 // extraHeaders son lineas ya terminadas en \r\n (p.ej. "Allow: GET, POST\r\n" en el 405).
 void setErrorResponse(Client *client, int code, const std::string &detail,
@@ -425,9 +425,7 @@ bool requestGet(Client *client, const LocationConfig &loc, int epoll_fd, std::ma
     if (file < 0)
     {
         close(file); // medidas extra de precaucion, por si acaso
-
-		// error_page 404 del server; si no esta, <root>/404.html; si tampoco, texto plano (todo dentro de setErrorResponse)
-		setErrorResponse(client, 404, "", "", loc.root + "/404.html");
+		setErrorResponse(client, 404);
 		return (true);
     }
     stat(filePath.c_str(), &st);
