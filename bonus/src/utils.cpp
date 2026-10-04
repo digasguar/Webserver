@@ -176,12 +176,23 @@ std::string statusMessage(const std::string &status)
 
 std::string extractCookie(const std::string &cookieHeader)
 {
-    std::string prefix = "session_id=";
-    size_t pos = cookieHeader.find(prefix);
+    const std::string prefix = "session_id=";
+    size_t pos = 0;
+
+    while ((pos = cookieHeader.find(prefix, pos)) != std::string::npos)
+    {
+        if (pos == 0 || cookieHeader[pos - 1] == ' ' || cookieHeader[pos - 1] == ';')
+            break;
+        pos += prefix.size();
+    }
 
     if (pos == std::string::npos)
         return ("");
-    return (cookieHeader.substr(pos + prefix.size()));
+	size_t start = pos + prefix.size();
+    size_t end = cookieHeader.find(';', start);
+    if (end == std::string::npos)
+        return (cookieHeader.substr(start));
+    return (cookieHeader.substr(start, end - start));
 }
 
 bool isPublicRoute(const std::string &path)

@@ -221,52 +221,27 @@ int writeAutoindexToTempFile(const std::string &html)
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
-static std::string normalizePath(const std::string &path)
-{
-    std::vector<std::string> parts;
-    std::stringstream ss(path);
-    std::string segment;
-    bool isAbsolute = !path.empty() && path[0] == '/';
-
-    while (std::getline(ss, segment, '/'))
-    {
-        if (segment.empty() || segment == ".")
-            continue;
-        if (segment == "..")
-        {
-            if (!parts.empty() && parts.back() != "..")
-                parts.pop_back();
-            else if (!isAbsolute)
-                parts.push_back(segment);
-        }
-        else
-            parts.push_back(segment);
-    }
-    std::string result = isAbsolute ? "/" : "";
-    for (size_t i = 0; i < parts.size(); ++i)
-    {
-        if (i > 0)
-            result += "/";
-        result += parts[i];
-    }
-    if (result.empty())
-        result = isAbsolute ? "/" : ".";
-    return (result);
-}
-
 
 // para manejar el .. y que no se salga dela carpeta ./html, o la que sea ene l config
 // GET y DELETE
 static bool isPathWithinRoot(const std::string &fsPath, const std::string &root)
 {
-    std::string normRoot = normalizePath(root);
-    std::string normTarget = normalizePath(fsPath);
+    char realRoot[PATH_MAX];
+    char realTarget[PATH_MAX];
 
-    if (normTarget == normRoot)
+    if (realpath(root.c_str(), realRoot) == NULL)
+        return false;
+    if (realpath(fsPath.c_str(), realTarget) == NULL)
         return true;
-    if (normTarget.size() > normRoot.size() &&
-        normTarget.compare(0, normRoot.size(), normRoot) == 0 &&
-        normTarget[normRoot.size()] == '/')
+
+    std::string realRootStr(realRoot);
+    std::string realTargetStr(realTarget);
+
+    if (realTargetStr == realRootStr)
+        return true;
+    if (realTargetStr.size() > realRootStr.size() &&
+        realTargetStr.compare(0, realRootStr.size(), realRootStr) == 0 &&
+        realTargetStr[realRootStr.size()] == '/')
         return true;
     return false;
 }
@@ -281,18 +256,22 @@ static bool isCreateTargetWithinRoot(const std::string &fsPath, const std::strin
     if (filename == ".." || filename == "." || filename.empty())
         return false;
 
-    struct stat parentSt;
-    if (stat(parentDir.c_str(), &parentSt) != 0 || !S_ISDIR(parentSt.st_mode))
+    char realRoot[PATH_MAX];
+    char realParent[PATH_MAX];
+
+    if (realpath(root.c_str(), realRoot) == NULL)
+        return false;
+    if (realpath(parentDir.c_str(), realParent) == NULL)
         return false;
 
-    std::string normRoot = normalizePath(root);
-    std::string normParent = normalizePath(parentDir);
+    std::string realRootStr(realRoot);
+    std::string realParentStr(realParent);
 
-    if (normParent == normRoot)
+    if (realParentStr == realRootStr)
         return true;
-    if (normParent.size() > normRoot.size() &&
-        normParent.compare(0, normRoot.size(), normRoot) == 0 &&
-        normParent[normRoot.size()] == '/')
+    if (realParentStr.size() > realRootStr.size() &&
+        realParentStr.compare(0, realRootStr.size(), realRootStr) == 0 &&
+        realParentStr[realRootStr.size()] == '/')
         return true;
     return false;
 }
@@ -384,9 +363,8 @@ bool requestGet(Client *client, const LocationConfig &loc, int epoll_fd, std::ma
     std::string filePath = loc.root + path;
 
     ///////////////////////////////////
-    struct stat boundarySt;
-    if (stat((loc.root + loc.path).c_str(), &boundarySt) != 0
-        || (!S_ISDIR(boundarySt.st_mode) && !(S_ISREG(boundarySt.st_mode) && path == loc.path)))
+    char realBoundary[PATH_MAX];
+    if (realpath((loc.root + loc.path).c_str(), realBoundary) == NULL)
     {
         // la propia location no tiene una carpeta real detras (config mal hecha
         // o location "virtual"). nginx trata esto igual que "archivo no encontrado".
