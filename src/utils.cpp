@@ -82,6 +82,8 @@ void checkClientTimeut(std::map<int, Client> &clients, int epoll_fd)
     }
 }
 
+void   serveErrorPage(Client &client, ServerConfig &config, const std::string &code, const std::string &defaultBody, )
+
 std::string statusMessage(const std::string &status)
 {
     static const struct { const char *code; const char *message; } table [] =
