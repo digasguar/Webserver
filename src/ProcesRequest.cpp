@@ -651,19 +651,6 @@ bool Procesrequest(Client * client, int epoll_fd, std::map<int, CgiProcess> &cgi
         return (true);
     }
 
-    /////////////////////////////////////////////////////////////////////////////////
-    /////////////////////////////////////////////////////////////////////////////////
-    //	SE PUEDE BORRAR E N EL FUTURO
-
-    /* std::cout << "=== REQUEST COMPLETE ===\n"
-          << "type: " << client->getRequest().type << "\n"
-          << "path: " << client->getRequest().path << "\n"
-          << "body: [" << client->getRequest().body << "]\n"
-          << "=========================\n"; */
-
-	////////////////////////////////////////////////////////////////////////////////
-	////////////////////////////////////////////////////////////////////////////////
-
     const ServerConfig *server = client->getServerConfig();
     const LocationConfig *loc = (server != NULL) ? findLocation(*server, client->getRequest().path) : NULL;
 
